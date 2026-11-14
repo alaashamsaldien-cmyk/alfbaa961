@@ -74,21 +74,21 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
   );
 
   const load = useCallback(
-    async (p: number) => {
-      setLoading(true);
+    async (p: number, background = false, signal?: AbortSignal) => {
+      if (!background) setLoading(true);
       try {
-        const res = await fetch(`/api/schools?${buildQuery(p)}&withOptions=1`, { cache: "no-store" });
+        const res = await fetch(`/api/schools?${buildQuery(p)}&withOptions=1`, { cache: "no-store", signal });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error ?? "تعذر جلب المدارس");
         setData(j as SchoolsListResponse);
       } catch (e) {
-        toast({
+        if (!background && !signal?.aborted) toast({
           title: "تعذر جلب المدارس",
           description: e instanceof Error ? e.message : "",
           variant: "destructive",
         });
       } finally {
-        setLoading(false);
+        if (!background && !signal?.aborted) setLoading(false);
       }
     },
     [buildQuery, toast]
@@ -102,6 +102,15 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
     }, 250);
     return () => clearTimeout(t);
   }, [filters, view]);
+
+  useEffect(() => {
+    if (view === "map") return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(page, true, controller.signal);
+    }, 30_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [load, page, view]);
 
   const loadCoordinators = useCallback(async () => {
     try {

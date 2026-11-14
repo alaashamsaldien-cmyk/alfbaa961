@@ -25,6 +25,10 @@ export async function GET() {
         notes: c.notes,
         isActive: c.isActive,
         schoolCount: c._count.schools,
+        canAddSchools: c.canAddSchools,
+        canRegisterVisits: c.canRegisterVisits,
+        canViewVisits: c.canViewVisits,
+        canViewSchools: c.canViewSchools,
         // حالة حساب الدخول للبوابة الميدانية
         hasAccount: Boolean(c.passwordHash),
         username: c.username,

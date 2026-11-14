@@ -7,6 +7,7 @@ import { Plus, UserRoundCheck, DoorOpen, KeyRound, RotateCcw, ShieldOff } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +16,13 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import type { CoordinatorDTO } from "@/lib/types";
 import { formatShortDate } from "@/lib/time";
+
+const coordinatorPermissions = {
+  canViewSchools: "عرض المدارس",
+  canAddSchools: "إضافة مدرسة",
+  canRegisterVisits: "تسجيل زيارة",
+  canViewVisits: "عرض الزيارات والتواصل",
+} as const;
 
 interface Props {
   onOpenPortal: () => void;
@@ -26,6 +34,7 @@ export function CoordinatorsView({ onOpenPortal }: Props) {
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
   const [saving, setSaving] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
   // إدارة حساب الدخول للمنسقة
   const [accountTarget, setAccountTarget] = useState<CoordinatorDTO | null>(null);
   const [accountMode, setAccountMode] = useState<"create" | "reset">("create");
@@ -46,6 +55,23 @@ export function CoordinatorsView({ onOpenPortal }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const updatePermission = async (id: string, key: keyof typeof coordinatorPermissions, value: boolean) => {
+    setSavingPermissions(true);
+    try {
+      const res = await fetch(`/api/coordinators/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!res.ok) throw new Error();
+      setList((items) => items?.map((c) => c.id === id ? { ...c, [key]: value } : c) ?? null);
+    } catch {
+      toast({ title: "تعذر حفظ الصلاحية", variant: "destructive" });
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
 
   const add = async () => {
     if (!form.name.trim()) {
@@ -221,6 +247,15 @@ export function CoordinatorsView({ onOpenPortal }: Props) {
                   <Button type="button" size="sm" variant="ghost" className="h-7 text-xs text-red-600" onClick={() => deactivate(c)}>
                     تعطيل المنسقة
                   </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs" aria-label={`صلاحيات ${c.name}`}>
+                  {(Object.keys(coordinatorPermissions) as (keyof typeof coordinatorPermissions)[]).map((key) => (
+                    <label key={key} className="flex items-center gap-2">
+                      <Checkbox checked={c[key] === true} disabled={savingPermissions}
+                        onCheckedChange={(checked) => updatePermission(c.id, key, checked === true)} />
+                      {coordinatorPermissions[key]}
+                    </label>
+                  ))}
                 </div>
               </CardContent>
             </Card>

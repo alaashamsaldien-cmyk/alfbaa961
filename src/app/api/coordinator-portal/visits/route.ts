@@ -17,8 +17,12 @@ export async function POST(request: NextRequest) {
 
     let coordinatorId: string | null = null;
     if (principal?.type === "COORDINATOR") {
-      coordinatorId = principal.coordinatorId; // من الجلسة — لا يقبل وسائط خارجية
-    } else if (principal?.type === "ADMIN") {
+      const account = await db.coordinator.findUnique({
+        where: { id: principal.coordinatorId }, select: { canRegisterVisits: true },
+      });
+      if (!account?.canRegisterVisits) return NextResponse.json({ error: "لا تملك صلاحية تسجيل زيارة." }, { status: 403 });
+      coordinatorId = principal.coordinatorId;
+    } else if (principal?.type === "ADMIN" && principal.role === "ADMIN") {
       coordinatorId = typeof body.coordinatorId === "string" && body.coordinatorId ? body.coordinatorId : null;
     }
     if (!coordinatorId) {

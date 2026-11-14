@@ -33,16 +33,22 @@ export async function GET(request: NextRequest) {
             },
           },
           employee: { select: { id: true, name: true, jobTitle: true } },
+          coordinator: { select: { id: true, name: true } },
         },
       }),
     ]);
 
     // خيارات الفلاتر الفعلية من القاعدة
-    const [employees, governorates] = await Promise.all([
+    const [employees, coordinators, governorates] = await Promise.all([
       db.user.findMany({
         where: { role: { in: ["MANAGER", "STAFF"] }, isActive: true },
         orderBy: { name: "asc" },
         select: { id: true, name: true, jobTitle: true },
+      }),
+      db.coordinator.findMany({
+        where: { OR: [{ isActive: true }, { schoolVisits: { some: {} } }] },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
       }),
       db.school.findMany({ where: { governorate: { not: null } }, distinct: ["governorate"], select: { governorate: true } }),
     ]);
@@ -55,6 +61,7 @@ export async function GET(request: NextRequest) {
         id: v.id,
         createdAt: v.createdAt.toISOString(),
         contactType: v.contactType,
+        contactOther: v.contactOther,
         result: v.result,
         resultOther: v.resultOther,
         rejectionReason: v.rejectionReason,
@@ -76,12 +83,12 @@ export async function GET(request: NextRequest) {
         schoolName: v.school.name,
         governorate: v.school.governorate,
         regionName: v.school.region?.name ?? v.school.regionText,
-        employeeId: v.employee.id,
-        employeeName: v.employee.name,
-        employeeJobTitle: v.employee.jobTitle,
+        employeeId: v.coordinator ? `coordinator:${v.coordinator.id}` : v.employeeId ?? "",
+        employeeName: v.coordinator?.name ?? v.employee?.name ?? "—",
+        employeeJobTitle: v.coordinator ? "منسّق ميداني" : v.employee?.jobTitle ?? null,
       })),
       filterOptions: {
-        employees,
+        employees: [...employees, ...coordinators.map((c) => ({ ...c, id: `coordinator:${c.id}`, jobTitle: "منسّق ميداني" }))],
         governorates: governorates.map((g) => g.governorate as string).sort((a, b) => a.localeCompare(b, "ar")),
       },
     });

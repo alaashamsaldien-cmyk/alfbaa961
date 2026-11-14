@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 import type { MapMarker } from "@/components/schools/base-map";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Phone, MessageCircle, MessageSquare, UsersRound, Ellipsis,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -68,11 +69,12 @@ interface LocationState {
 }
 
 const CONTACT_TYPES = [
-  { value: "FIELD_VISIT", label: "زيارة ميدانية" },
-  { value: "PHONE", label: "اتصال هاتفي" },
-  { value: "WHATSAPP", label: "واتساب" },
-  { value: "SMS", label: "رسالة SMS" },
-  { value: "MEETING", label: "اجتماع متابعة" },
+  { value: "FIELD_VISIT", label: "زيارة ميدانية", icon: MapPin },
+  { value: "PHONE", label: "اتصال هاتفي", icon: Phone },
+  { value: "WHATSAPP", label: "واتساب", icon: MessageCircle },
+  { value: "SMS", label: "رسالة SMS", icon: MessageSquare },
+  { value: "MEETING", label: "اجتماع ومتابعة", icon: UsersRound },
+  { value: "OTHER", label: "أخرى", icon: Ellipsis },
 ];
 
 const RESULTS = [
@@ -100,10 +102,14 @@ const NEEDS_LABELS: Record<string, string> = Object.fromEntries(NEEDS_OPTIONS.ma
 
 export function VisitWizard({
   perms,
+  accountId,
   onRegistered,
+  onExit,
 }: {
   perms: Record<string, SectionPerms>;
+  accountId: string;
   onRegistered: () => void;
+  onExit: () => void;
 }) {
   const { toast } = useToast();
   const [step, setStep] = useState(0);
@@ -115,9 +121,9 @@ export function VisitWizard({
   const [locating, setLocating] = useState(false);
   const [addSchoolOpen, setAddSchoolOpen] = useState(false);
   const [savingSchool, setSavingSchool] = useState(false);
-  const [schoolForm, setSchoolForm] = useState({ name: "", regionText: "", phone: "", lat: "", lng: "" });
+  const [schoolForm, setSchoolForm] = useState({ name: "", regionText: "", address: "", phone: "", lat: "", lng: "" });
   const [sending, setSending] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<"registered" | "queued" | null>(null);
   // طابور الزيارات غير المتصلة — عدد الزيارات المحفوظة محلياً بانتظار الإرسال
   const [pendingQueue, setPendingQueue] = useState<PendingVisitItem[]>([]);
   const [retryingQueue, setRetryingQueue] = useState(false);
@@ -125,6 +131,8 @@ export function VisitWizard({
 
   // بيانات الخطوات
   const [contactType, setContactType] = useState("");
+  const [contactOther, setContactOther] = useState("");
+  const [hasFollowUp, setHasFollowUp] = useState("no");
   const [result, setResult] = useState("");
   const [resultOther, setResultOther] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
@@ -162,8 +170,8 @@ export function VisitWizard({
 
   // ——— طابور الزيارات غير المتصلة: عدة زيارات متتالية بلا فقدان ولا تكرار ———
   const refreshQueue = useCallback(() => {
-    setPendingQueue(readPendingVisits());
-  }, []);
+    setPendingQueue(readPendingVisits(accountId));
+  }, [accountId]);
 
   const postQueuedVisit = useCallback(async (body: Record<string, unknown>) => {
     try {
@@ -183,11 +191,11 @@ export function VisitWizard({
   // إعادة إرسال الطابور كله بالترتيب — كل عنصر يُحذف فور نجاحه حصراً
   const retryPending = useCallback(async () => {
     if (retryingQueue) return;
-    const queue = readPendingVisits();
+    const queue = readPendingVisits(accountId);
     if (queue.length === 0) return;
     setRetryingQueue(true);
     try {
-      const { sent, remaining } = await retryAllPendingVisits(postQueuedVisit);
+      const { sent, remaining } = await retryAllPendingVisits(postQueuedVisit, accountId);
       refreshQueue();
       if (sent > 0) {
         toast({
@@ -202,11 +210,11 @@ export function VisitWizard({
     } finally {
       setRetryingQueue(false);
     }
-  }, [onRegistered, postQueuedVisit, refreshQueue, retryingQueue, toast]);
+  }, [accountId, onRegistered, postQueuedVisit, refreshQueue, retryingQueue, toast]);
 
   useEffect(() => {
     // ترحيل الزيارة القديمة (المفتاح الفردي) إلى الطابور الجديد ثم عرض العدد
-    const queue = readPendingVisits();
+    const queue = readPendingVisits(accountId);
     setPendingQueue(queue);
     // عودة الاتصال → إعادة إرسال تلقائية للطابور كله
     const onOnline = () => {
@@ -222,7 +230,7 @@ export function VisitWizard({
       };
     }
     return () => window.removeEventListener("online", onOnline);
-  }, [retryPending]);
+  }, [accountId, retryPending]);
 
   // ——— الخطوة 1: تحديد الموقع ———
   const useGps = () => {
@@ -278,13 +286,11 @@ export function VisitWizard({
   };
 
   const confirmSavedLocation = () => {
-    if (selected?.hasCoords && selected.lat !== null) {
-      setLocation({ lat: selected.lat, lng: selected.lng ?? 0, accuracy: null, source: "SAVED", confirmed: true });
+    if (selected?.hasCoords && selected.lat !== null && selected.lng !== null) {
+      setLocation({ lat: selected.lat, lng: selected.lng, accuracy: null, source: "SAVED", confirmed: true });
       toast({ title: "أكّدت الموقع المحفوظ", description: "الإحداثيات المحفوظة في النظام سترتبط بهذه الزيارة." });
     }
   };
-
-  const step1Valid = Boolean(selected && location?.confirmed);
 
   // ——— خطوات بمفاتيح ديناميكية: سبب الرفض يظهر فقط عند اختيار «رفض» ———
   // المفاتيح تضمن تطابق فهرسة الخطوة مع محتواها في كل الحالات (رفض أو غيره)
@@ -317,6 +323,7 @@ export function VisitWizard({
         return null;
       case "contact":
         if (!contactType) return "اختر نوع التواصل";
+        if (contactType === "OTHER" && !contactOther.trim()) return "اكتب نوع التواصل عند اختيار «أخرى»";
         return null;
       case "result":
         if (!result) return "اختر نتيجة الزيارة";
@@ -331,7 +338,7 @@ export function VisitWizard({
         if (needs.includes("OTHER") && !needsOther.trim()) return "شرح الاحتياج الآخر إلزامي عند اختيار «أخرى»";
         return null;
       case "followup":
-        return null;
+        return hasFollowUp === "yes" && !followUp.nextDate ? "حدد تاريخ المتابعة" : null;
       default:
         return null;
     }
@@ -363,7 +370,9 @@ export function VisitWizard({
     const body = {
       dedupeKey: dedupeRef.current,
       schoolId: selected.id,
+      accountId,
       contactType,
+      contactOther: contactType === "OTHER" ? contactOther.trim() : undefined,
       result,
       resultOther: result === "OTHER" ? resultOther.trim() : undefined,
       rejectionReason: result === "REJECTED" ? rejectionReason.trim() : undefined,
@@ -375,7 +384,7 @@ export function VisitWizard({
       needs,
       needsOther: needs.includes("OTHER") ? needsOther.trim() : undefined,
       subscribersCount: followUp.subscribers ? Number(followUp.subscribers) : undefined,
-      nextFollowUpAt: followUp.nextDate || undefined,
+      nextFollowUpAt: hasFollowUp === "yes" ? followUp.nextDate : undefined,
       notes: notes.trim() || undefined,
       lat: location.lat,
       lng: location.lng,
@@ -391,10 +400,14 @@ export function VisitWizard({
         body: JSON.stringify(body),
       });
       const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(j?.error ?? "تعذر الإرسال");
+      if (res.status >= 500 || !j) throw new Error("تعذر الاتصال بالخادم");
+      if (!res.ok) {
+        toast({ title: "تعذر تسجيل الزيارة", description: j.error, variant: "destructive" });
+        return;
+      }
       // نجاح الزيارة الجديدة — الطابور المعلق يبقى محفوظاً كما هو (لا فقدان بيانات)
       refreshQueue();
-      setDone(true);
+      setDone("registered");
       onRegistered();
       // رسالة النجاح المطلوبة حرفياً — تظهر في شاشة النجاح أسفل الشعار
     } catch (e) {
@@ -404,10 +417,9 @@ export function VisitWizard({
         body,
         schoolName: selected.name,
         savedAt: new Date().toISOString(),
-      });
+      }, accountId);
       refreshQueue();
-      setDone(true);
-      onRegistered();
+      setDone("queued");
       toast({
         title: "انقطع الاتصال — الزيارة محفوظة على جهازك",
         description:
@@ -426,23 +438,25 @@ export function VisitWizard({
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center space-y-3 text-center" dir="rtl">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-          <CheckCircle2 className="h-9 w-9 text-emerald-600" aria-hidden="true" />
+          {done === "registered"
+            ? <CheckCircle2 className="h-9 w-9 text-emerald-600" aria-hidden="true" />
+            : <CloudOff className="h-9 w-9 text-amber-600" aria-hidden="true" />}
         </div>
-        <p className="text-lg font-extrabold text-foreground">تم تسجيل زيارتك للمدرسة بنجاح</p>
-        <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
-          سُجلت الزيارة في قاعدة البيانات المركزية باسمك وارتبطت بالمدرسة والتاريخ والوقت والإحداثيات —
-          وظهرت فوراً في لوحة الإدارة.
+        <p className="text-lg font-extrabold text-foreground">
+          {done === "registered" ? "تم تسجيل زيارتك للمدرسة بنجاح" : "حُفظت الزيارة على جهازك بانتظار الإرسال"}
         </p>
         <Button
           type="button"
           className="mt-3 gap-2"
           onClick={() => {
             // إعادة تهيئة النموذج لزيارة جديدة
-            setDone(false);
+            setDone(null);
             setStep(0);
             setSelected(null);
             setLocation(null);
             setContactType("");
+            setContactOther("");
+            setHasFollowUp("no");
             setResult("");
             setResultOther("");
             setRejectionReason("");
@@ -458,6 +472,7 @@ export function VisitWizard({
         >
           تسجيل زيارة جديدة
         </Button>
+        <Button type="button" variant="outline" className="w-full" onClick={onExit}>العودة للرئيسية</Button>
         {pendingQueue.length > 0 && (
           <p className="mt-2 text-[11px] text-amber-700">
             لديك {formatNumber(pendingQueue.length)} {pendingQueue.length === 1 ? "زيارة" : "زيارات"} محفوظة على الجهاز بانتظار عودة الاتصال — سيتم إرسالها تلقائياً دون تكرار.
@@ -575,11 +590,12 @@ export function VisitWizard({
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {[selected.regionName, selected.governorate].filter(Boolean).join(" — ") || "—"}
                       </p>
+                      {selected.address && <p className="text-[11px] text-muted-foreground">{selected.address}</p>}
                       {selected.principalName && <p className="text-[11px] text-muted-foreground">المدير: {selected.principalName}</p>}
                       {selected.phone && <p className="text-[11px] text-muted-foreground" dir="ltr">هاتف: {selected.phone}</p>}
                       {selected.studentCount !== null && <p className="text-[11px] text-muted-foreground">الطلاب: {formatNumber(selected.studentCount)}</p>}
                     </div>
-                    <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 text-[11px]" onClick={() => { setSelected(null); setLocation(null); }}>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 shrink-0 text-[11px]" disabled={locating || updatingLocation} onClick={() => { setSelected(null); setLocation(null); }}>
                       تغيير
                     </Button>
                   </div>
@@ -691,10 +707,15 @@ export function VisitWizard({
               {CONTACT_TYPES.map((c) => (
                 <label key={c.value} className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-semibold has-[:checked]:border-sky-400 has-[:checked]:bg-sky-50">
                   <RadioGroupItem value={c.value} aria-label={c.label} />
+                  <c.icon className="h-5 w-5 text-sky-600" aria-hidden="true" />
                   {c.label}
                 </label>
               ))}
             </RadioGroup>
+            {contactType === "OTHER" && (
+              <Input aria-label="نوع التواصل الآخر" value={contactOther}
+                onChange={(e) => setContactOther(e.target.value)} placeholder="اكتب نوع التواصل" />
+            )}
           </div>
         )}
 
@@ -828,13 +849,17 @@ export function VisitWizard({
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">موعد المتابعة القادم</Label>
-              <Input
+              <RadioGroup aria-label="هل يوجد موعد متابعة؟" value={hasFollowUp} onValueChange={setHasFollowUp} className="flex gap-5">
+                <label className="flex items-center gap-2"><RadioGroupItem value="yes" />يوجد</label>
+                <label className="flex items-center gap-2"><RadioGroupItem value="no" />لا يوجد</label>
+              </RadioGroup>
+              {hasFollowUp === "yes" && <Input aria-label="تاريخ المتابعة"
                 type="date"
                 dir="ltr"
                 className="text-start"
                 value={followUp.nextDate}
                 onChange={(e) => setFollowUp((f) => ({ ...f, nextDate: e.target.value }))}
-              />
+              />}
             </div>
           </div>
         )}
@@ -847,8 +872,9 @@ export function VisitWizard({
             <p className="text-sm font-bold text-foreground">ملخص الزيارة قبل الإرسال</p>
             <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3 text-xs">
               <SummaryRow label="المدرسة" value={selected?.name ?? "—"} />
+              {selected?.address && <SummaryRow label="العنوان" value={selected.address} />}
               <SummaryRow label="الموقع" value={`${location?.lat.toFixed(5)}, ${location?.lng.toFixed(5)}`} ltr />
-              <SummaryRow label="نوع التواصل" value={CONTACT_LABELS[contactType] ?? "—"} />
+              <SummaryRow label="نوع التواصل" value={contactType === "OTHER" ? contactOther : CONTACT_LABELS[contactType] ?? "—"} />
               <SummaryRow label="النتيجة" value={result === "OTHER" && resultOther ? `أخرى — ${resultOther}` : RESULT_LABELS[result] ?? "—"} />
               {result === "REJECTED" && <SummaryRow label="سبب الرفض" value={rejectionReason} />}
               {contactPerson.name && <SummaryRow label="الشخص المتواصل معه" value={`${contactPerson.name}${contactPerson.title ? ` (${contactPerson.title})` : ""}`} />}
@@ -857,7 +883,7 @@ export function VisitWizard({
               {contactPerson.students && <SummaryRow label="عدد الطلاب" value={contactPerson.students} />}
               {needs.length > 0 && <SummaryRow label="الاحتياجات" value={needs.map((n) => NEEDS_LABELS[n]).join("، ") + (needs.includes("OTHER") && needsOther ? ` — ${needsOther}` : "")} />}
               {followUp.subscribers && <SummaryRow label="المشتركون بالمنصة" value={followUp.subscribers} />}
-              {followUp.nextDate && <SummaryRow label="المتابعة القادمة" value={followUp.nextDate} />}
+              <SummaryRow label="المتابعة القادمة" value={hasFollowUp === "yes" ? followUp.nextDate : "لا يوجد"} />
               {notes && <SummaryRow label="ملاحظات" value={notes} />}
             </div>
             {pendingQueue.length > 0 && (
@@ -907,6 +933,11 @@ export function VisitWizard({
               <Input value={schoolForm.regionText} onChange={(e) => setSchoolForm((f) => ({ ...f, regionText: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
+              <Label htmlFor="new-school-address">عنوان المدرسة</Label>
+              <Input id="new-school-address" value={schoolForm.address}
+                onChange={(e) => setSchoolForm((f) => ({ ...f, address: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-xs">هاتف المدرسة</Label>
               <Input dir="ltr" className="text-start" value={schoolForm.phone} onChange={(e) => setSchoolForm((f) => ({ ...f, phone: e.target.value }))} />
             </div>
@@ -948,6 +979,7 @@ export function VisitWizard({
                   const body: Record<string, unknown> = {
                     name: schoolForm.name.trim(),
                     regionText: schoolForm.regionText.trim() || undefined,
+                    address: schoolForm.address.trim() || undefined,
                     phone: schoolForm.phone.trim() || undefined,
                   };
                   if (schoolForm.lat && schoolForm.lng) {
@@ -963,14 +995,13 @@ export function VisitWizard({
                   if (!res.ok) throw new Error(j?.error ?? "تعذر الإضافة");
                   setAddSchoolOpen(false);
                   await loadSchools("");
-                  const created = await fetch(`/api/employee/schools?q=${encodeURIComponent(schoolForm.name.trim())}`, { cache: "no-store" }).then((r) => r.json());
-                  const found = (created?.schools ?? []).find((s: SchoolRow) => s.id === j?.school?.id);
+                  const found: SchoolRow | undefined = j?.school;
                   if (found) {
                     setSelected(found);
-                    if (found.hasCoords) setLocation({ lat: found.lat, lng: found.lng, accuracy: null, source: "SAVED", confirmed: true });
+                    setLocation(null);
                   }
                   toast({ title: "أُضيفت المدرسة", description: "أكمل الآن تحديد موقعها للتأكيد." });
-                  setSchoolForm({ name: "", regionText: "", phone: "", lat: "", lng: "" });
+                  setSchoolForm({ name: "", regionText: "", address: "", phone: "", lat: "", lng: "" });
                   onRegistered();
                 } catch (e) {
                   toast({ title: "تعذر إضافة المدرسة", description: e instanceof Error ? e.message : "", variant: "destructive" });

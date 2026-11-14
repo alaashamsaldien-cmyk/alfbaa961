@@ -122,7 +122,13 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
                     {CONTRACT_LABELS[s.contractStatus] ?? s.contractStatus}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs">{s.lastVisitAt ? fmtDate(s.lastVisitAt) : <span className="text-muted-foreground">لم تُزر</span>}</TableCell>
+                <TableCell className="text-xs">{s.lastVisitAt ? (
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-emerald-700">✓ تمت الزيارة</p>
+                    {s.lastVisitorName && <p>{s.lastVisitorName}</p>}
+                    <p className="text-muted-foreground">{fmtDate(s.lastVisitAt)}</p>
+                  </div>
+                ) : <span className="text-muted-foreground">لم تُزر</span>}</TableCell>
                 <TableCell className="text-sm">{s.coordinator?.name ?? <span className="text-muted-foreground">غير مخصصة</span>}</TableCell>
                 <TableCell>
                   <div className="flex items-center justify-center gap-1">

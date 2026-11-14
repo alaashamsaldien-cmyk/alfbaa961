@@ -19,10 +19,10 @@ export async function GET(request: NextRequest) {
     if (principal?.type === "COORDINATOR") {
       // جلسة حقيقية — المعرف من الجلسة دائماً، الوسيط يتجاهل حمايةً للبيانات
       coordinatorId = principal.coordinatorId;
-    } else if (principal?.type === "ADMIN" && previewCoordinatorId) {
+    } else if (principal?.type === "ADMIN" && principal.role === "ADMIN" && previewCoordinatorId) {
       coordinatorId = previewCoordinatorId;
       preview = true;
-    } else if (principal?.type === "ADMIN") {
+    } else if (principal?.type === "ADMIN" && principal.role === "ADMIN") {
       return NextResponse.json(
         { error: "معاينة الإدارة تتطلب تحديد المنسقة: ?coordinatorId=" },
         { status: 400 }
@@ -37,6 +37,10 @@ export async function GET(request: NextRequest) {
     const coordinator = await db.coordinator.findFirst({ where: { id: coordinatorId, isActive: true } });
     if (!coordinator) {
       return NextResponse.json({ error: "المنسقة غير موجودة أو غير نشطة." }, { status: 404 });
+    }
+
+    if (!preview && !coordinator.canViewSchools) {
+      return NextResponse.json({ error: "لا تملك صلاحية عرض المدارس." }, { status: 403 });
     }
 
     const schools = await db.school.findMany({
@@ -65,12 +69,12 @@ export async function GET(request: NextRequest) {
     const regions = [...regionMap.values()].sort((a, b) => b.schoolCount - a.schoolCount);
 
     // آخر نشاطاتها المسجلة (تظهر نفسها في لوحة الإدارة فوراً)
-    const activities = await db.activity.findMany({
+    const activities = preview || coordinator.canViewVisits ? await db.activity.findMany({
       where: { coordinatorId },
       orderBy: { occurredAt: "desc" },
       take: 15,
       include: { school: { select: { name: true } } },
-    });
+    }) : [];
 
     // مراجعاتها ومتابعاتها المخصصة لها — المتأخرة أولاً
     const followUps = await db.followUp.findMany({

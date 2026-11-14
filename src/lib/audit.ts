@@ -4,7 +4,7 @@
 
 import { db } from "@/lib/db";
 
-export type AuditActorType = "ADMIN" | "EMPLOYEE" | "SYSTEM";
+export type AuditActorType = "ADMIN" | "EMPLOYEE" | "COORDINATOR" | "SYSTEM";
 
 export interface AuditEntry {
   actorType: AuditActorType;

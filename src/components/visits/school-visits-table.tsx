@@ -24,7 +24,8 @@ export const VISIT_CONTACT_TYPE_LABELS: Record<string, string> = {
   PHONE: "اتصال هاتفي",
   WHATSAPP: "واتساب",
   SMS: "رسالة SMS",
-  MEETING: "اجتماع متابعة",
+  MEETING: "اجتماع ومتابعة",
+  OTHER: "أخرى",
 };
 
 export const VISIT_RESULT_LABELS: Record<string, string> = {
@@ -66,6 +67,7 @@ interface SchoolVisitRow {
   id: string;
   createdAt: string;
   contactType: string;
+  contactOther: string | null;
   result: string;
   resultOther: string | null;
   rejectionReason: string | null;
@@ -107,7 +109,7 @@ interface DetailResponse {
       lat: number | null;
       lng: number | null;
     };
-    employee: { id: string; name: string; username: string; jobTitle: string | null; phone: string | null };
+    employee: { id: string; name: string | null; username: string | null; jobTitle: string | null; phone: string | null } | null;
   };
   auditEntries: { id: string; action: string; actorName: string; details: Record<string, unknown> | null; createdAt: string }[];
 }
@@ -252,7 +254,7 @@ export function SchoolVisitsTable() {
         <Select value={filters.employeeId} onValueChange={(v) => { setFilters((f) => ({ ...f, employeeId: v })); setPage(1); }}>
           <SelectTrigger className="w-[150px]" aria-label="فلتر الموظف"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">كل الموظفين</SelectItem>
+            <SelectItem value="all">كل الموظفين والمنسّقين</SelectItem>
             {options.employees.map((e) => (
               <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
             ))}
@@ -398,7 +400,7 @@ export function SchoolVisitsTable() {
                     </td>
                     <td className="px-3 py-2.5">
                       <Badge variant="outline" className="text-[10px] bg-sky-50 text-sky-700 border-sky-200">
-                        {VISIT_CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType}
+                        {v.contactOther ?? VISIT_CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType}
                       </Badge>
                     </td>
                     <td className="px-3 py-2.5">
@@ -505,13 +507,13 @@ export function SchoolVisitsTable() {
                   تفاصيل الزيارة — {detail.visit.school?.name ?? ""}
                 </DialogTitle>
                 <p className="text-xs text-muted-foreground" suppressHydrationWarning>
-                  {formatFullDate(detail.visit.createdAt)} · {formatTime(detail.visit.createdAt)} · المسجلة من الموظف «{detail.visit.employee.name}»
+                  {formatFullDate(detail.visit.createdAt)} · {formatTime(detail.visit.createdAt)} · سجّلها «{detail.visit.employee?.name ?? "—"}»
                 </p>
               </DialogHeader>
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {[
-                  { label: "نوع التواصل", value: VISIT_CONTACT_TYPE_LABELS[detail.visit.contactType] ?? detail.visit.contactType },
+                  { label: "نوع التواصل", value: detail.visit.contactOther ?? VISIT_CONTACT_TYPE_LABELS[detail.visit.contactType] ?? detail.visit.contactType },
                   {
                     label: "نتيجة الزيارة",
                     value:
@@ -588,7 +590,7 @@ export function SchoolVisitsTable() {
                       lng: (detail.visit.lng ?? 0) as number,
                       contactType: detail.visit.contactType,
                       result: detail.visit.result,
-                      employeeName: detail.visit.employee.name,
+                      employeeName: detail.visit.employee?.name ?? "—",
                     });
                     setMapOpen(true);
                   }}

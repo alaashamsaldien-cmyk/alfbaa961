@@ -98,6 +98,12 @@ model Region {
 
 // المنسقات الميدانيات — النموذج جاهز مع حسابات دخول للبوابة الميدانية
 model Coordinator {
+  schoolVisits      SchoolVisit[]
+  canAddSchools     Boolean @default(true)
+  canRegisterVisits Boolean @default(true)
+  canViewVisits     Boolean @default(true)
+  canViewSchools    Boolean @default(true)
+
   id        String   @id @default(cuid())
   name      String
   phone     String?
@@ -295,8 +301,11 @@ model SchoolVisit {
   dedupeKey         String    @unique // UUID يولده جهاز الموظف — إعادة الإرسال تعيد السجل نفسه دون تكرار
   schoolId          String
   school            School    @relation(fields: [schoolId], references: [id])
-  employeeId        String
-  employee          User      @relation(fields: [employeeId], references: [id])
+  employeeId        String?
+  employee          User? @relation(fields: [employeeId], references: [id])
+  coordinatorId     String?
+  coordinator       Coordinator? @relation(fields: [coordinatorId], references: [id])
+  contactOther      String?
   // الخطوة 2: نوع التواصل — اختيار واحد
   contactType       String    // FIELD_VISIT زيارة ميدانية | PHONE اتصال | WHATSAPP | SMS | MEETING اجتماع متابعة
   // الخطوة 3: نتيجة الزيارة — اختيار واحد
@@ -327,6 +336,7 @@ model SchoolVisit {
 
   @@index([schoolId])
   @@index([employeeId])
+  @@index([coordinatorId])
   @@index([createdAt])
   @@index([contactType])
   @@index([result])

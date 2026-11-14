@@ -97,6 +97,12 @@ model Region {
 }
 
 model Coordinator {
+  schoolVisits      SchoolVisit[]
+  canAddSchools     Boolean @default(true)
+  canRegisterVisits Boolean @default(true)
+  canViewVisits     Boolean @default(true)
+  canViewSchools    Boolean @default(true)
+
   id        String   @id @default(cuid())
   name      String
   phone     String?
@@ -279,8 +285,11 @@ model SchoolVisit {
   dedupeKey         String    @unique
   schoolId          String
   school            School    @relation(fields: [schoolId], references: [id])
-  employeeId        String
-  employee          User      @relation(fields: [employeeId], references: [id])
+  employeeId        String?
+  employee          User? @relation(fields: [employeeId], references: [id])
+  coordinatorId     String?
+  coordinator       Coordinator? @relation(fields: [coordinatorId], references: [id])
+  contactOther      String?
   contactType       String
   result            String
   resultOther       String?
@@ -304,6 +313,7 @@ model SchoolVisit {
 
   @@index([schoolId])
   @@index([employeeId])
+  @@index([coordinatorId])
   @@index([createdAt])
   @@index([contactType])
   @@index([result])

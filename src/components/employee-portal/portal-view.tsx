@@ -58,7 +58,6 @@ export interface EmployeeMe {
 }
 
 interface PortalViewProps {
-  employeeName: string;
   onLogout: () => void;
 }
 
@@ -77,7 +76,7 @@ const GRID_ORDER: SectionKey[] = [
   "settings",
 ];
 
-export function EmployeePortalView({ employeeName, onLogout }: PortalViewProps) {
+export function EmployeePortalView({ onLogout }: PortalViewProps) {
   const { toast } = useToast();
   const [me, setMe] = useState<EmployeeMe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,6 +112,7 @@ export function EmployeePortalView({ employeeName, onLogout }: PortalViewProps) 
     const s = new Set<SectionKey>();
     for (const key of SECTION_KEYS) {
       const p = me.permissions[key];
+      if (me.employee.role === "COORDINATOR" && key === "schools" && !p?.view) continue;
       if (p?.visible || CORE_SECTIONS.includes(key)) s.add(key);
     }
     return s;
@@ -132,10 +132,10 @@ export function EmployeePortalView({ employeeName, onLogout }: PortalViewProps) 
     window.scrollTo({ top: 0 });
   };
 
-  const refreshAll = () => {
+  const refreshAll = useCallback(() => {
     setRefreshKey((k) => k + 1);
     loadMe();
-  };
+  }, [loadMe]);
 
   if (loading && !me) {
     return (
@@ -208,8 +208,11 @@ export function EmployeePortalView({ employeeName, onLogout }: PortalViewProps) 
 
         {section === "visit_register" && enabledSections.has("visit_register") && (
           <VisitWizard
+            key={me.employee.id}
             perms={me.permissions}
+            accountId={me.employee.id}
             onRegistered={refreshAll}
+            onExit={() => openSection("home")}
           />
         )}
 
@@ -342,7 +345,8 @@ function EmployeeHomeSection({
       <div className="rounded-2xl bg-gradient-to-l from-sky-600 to-sky-500 p-4 text-white">
         <p className="text-sm font-bold">{isMorning ? "صباح الخير" : "مساء الخير"}، {me.employee.name}</p>
         <p className="mt-1 text-[11px] opacity-90">{formatFullDate(me.serverTime)}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <h2 className="mt-3 text-xs font-semibold">ملخص العمل الميداني</h2>
+        <div className="mt-2 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-white/15 px-3 py-2">
             <p className="text-lg font-extrabold">{formatNumber(stats.visitsToday)}</p>
             <p className="text-[10px] opacity-90">زياراتي اليوم</p>
@@ -362,7 +366,7 @@ function EmployeeHomeSection({
         </div>
         {stats.pendingFollowups > 0 && (
           <p className="mt-3 rounded-lg bg-amber-400/90 px-3 py-1.5 text-[11px] font-bold text-amber-950">
-            لديك {formatNumber(stats.pendingFollowups)} مراجعة/متابعة مستحقة في نطاقك
+            متابعات في نطاقك: {formatNumber(stats.pendingFollowups)}
           </p>
         )}
       </div>

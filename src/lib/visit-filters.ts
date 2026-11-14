@@ -5,7 +5,7 @@
 
 import { getBaghdadStartOfDay, getBaghdadEndOfDay, getBaghdadDaysAgoStart } from "@/lib/time";
 
-export const VISIT_CONTACT_TYPES = ["FIELD_VISIT", "PHONE", "WHATSAPP", "SMS", "MEETING"] as const;
+export const VISIT_CONTACT_TYPES = ["FIELD_VISIT", "PHONE", "WHATSAPP", "SMS", "MEETING", "OTHER"] as const;
 export const VISIT_RESULTS = ["INITIAL_APPROVAL", "APPROVED", "NEEDS_ANOTHER_VISIT", "CONTRACTED", "REJECTED", "SCHOOL_NOT_FOUND", "OTHER"] as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,7 +127,11 @@ export function visitWhereFromParsed(
 ): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   const and: Record<string, unknown>[] = [];
-  if (f.employeeId) where.employeeId = f.employeeId;
+  if (f.employeeId?.startsWith("coordinator:")) {
+    where.coordinatorId = f.employeeId.slice("coordinator:".length);
+  } else if (f.employeeId) {
+    where.employeeId = f.employeeId;
+  }
   if (f.schoolId) where.schoolId = f.schoolId;
   if (f.contactType) where.contactType = f.contactType;
   if (f.result) where.result = f.result;

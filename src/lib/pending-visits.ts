@@ -9,6 +9,7 @@
 //  - ترحيل تلقائي: الزيارة المحفوظة بالمفتاح القديم (زيارة واحدة) تُرحّل إلى الطابور الجديد دون فقدان.
 
 export interface PendingVisitItem {
+  accountId?: string;
   body: Record<string, unknown>;
   schoolName: string;
   savedAt: string;      // وقت الحفظ المحلي ISO
@@ -20,7 +21,7 @@ const QUEUE_KEY = "alifba_pending_visits_v2";
 const LEGACY_KEY = "alifba_pending_visit"; // المفتاح القديم — زيارة واحدة فقط
 
 /** قراءة الطابور من localStorage (مع ترحيل تلقائي من المفتاح القديم) */
-export function readPendingVisits(): PendingVisitItem[] {
+export function readPendingVisits(accountId?: string): PendingVisitItem[] {
   if (typeof window === "undefined") return [];
   // ترحيل الزيارة الواحدة القديمة إلى الطابور الجديد أولاً
   const legacy = localStorage.getItem(LEGACY_KEY);
@@ -44,7 +45,8 @@ export function readPendingVisits(): PendingVisitItem[] {
     }
     localStorage.removeItem(LEGACY_KEY);
   }
-  return safeReadQueue();
+  const queue = safeReadQueue();
+  return accountId ? queue.filter((item) => item.accountId === accountId) : queue;
 }
 
 function safeReadQueue(): PendingVisitItem[] {
@@ -64,17 +66,17 @@ function writeQueue(items: PendingVisitItem[]): void {
 }
 
 /** إضافة زيارة إلى نهاية الطابور (ترتيب زمني حقيقي) */
-export function enqueuePendingVisit(item: Omit<PendingVisitItem, "attempts">): number {
+export function enqueuePendingVisit(item: Omit<PendingVisitItem, "attempts">, accountId: string): number {
   const queue = readPendingVisits();
   // الحماية من التكرار المحلي نفسه: dedupeKey موجود مسبقاً؟ نحدثه بدل الإضافة
   const idx = queue.findIndex((it) => it.body?.dedupeKey === item.body.dedupeKey);
   if (idx >= 0) {
     queue[idx] = { ...queue[idx], body: item.body, schoolName: item.schoolName, savedAt: item.savedAt };
   } else {
-    queue.push({ ...item, attempts: 0 });
+    queue.push({ ...item, accountId, attempts: 0 });
   }
   writeQueue(queue);
-  return queue.length;
+  return queue.filter((item) => item.accountId === accountId).length;
 }
 
 /** حذف عنصر مكتمل فقط — يُستدعى بعد تأكيد نجاح الخادم حصراً */
@@ -105,15 +107,16 @@ export interface RetryResult {
  * فشل شبكي أو خطأ خادم → يبقى في الطابور ويُنهى الحساب المتبقي فوراً حفاظاً على البيانات.
  */
 export async function retryAllPendingVisits(
-  postVisit: (body: Record<string, unknown>) => Promise<{ ok: boolean; duplicate?: boolean; error?: string }>
+  postVisit: (body: Record<string, unknown>) => Promise<{ ok: boolean; duplicate?: boolean; error?: string }>,
+  accountId: string
 ): Promise<RetryResult> {
-  let queue = readPendingVisits();
+  const queue = readPendingVisits(accountId);
   let sent = 0;
   for (const item of [...queue]) {
     try {
       const res = await postVisit(item.body);
       if (res.ok) {
-        queue = removePendingVisit(String(item.body.dedupeKey));
+        removePendingVisit(String(item.body.dedupeKey));
         sent += 1;
         continue; // التالي
       }
@@ -124,5 +127,5 @@ export async function retryAllPendingVisits(
       break;
     }
   }
-  return { sent, remaining: readPendingVisits().length };
+  return { sent, remaining: readPendingVisits(accountId).length };
 }

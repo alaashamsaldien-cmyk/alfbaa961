@@ -3,15 +3,45 @@
 // وخريطة صلاحياته ومن نطاق عمله (المحافظة/المنطقة) — بلا أي بيانات وهمية.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireEmployee } from "@/lib/auth";
-import { getPermissionMap } from "@/lib/permissions";
+import { requireFieldAccount, getFieldPermissions, fieldVisitOwner } from "@/lib/field-account";
 import { getBaghdadStartOfDay, getBaghdadDaysAgoStart, getBaghdadEndOfDay } from "@/lib/time";
 
 export async function GET() {
-  const guard = await requireEmployee();
-  if ("response" in guard) return guard.response;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
   try {
-    const { userId, name } = guard.principal;
+    const account = guard.principal;
+    const { userId } = account;
+    if (account.isCoordinator) {
+      const now = new Date();
+      const owner = fieldVisitOwner(account);
+      const [permissions, schoolsCount, regions, visitsToday, visitsWeek, visitsTotal, pendingFollowups] = await Promise.all([
+        getFieldPermissions(account),
+        db.school.count({ where: { coordinatorId: userId } }),
+        db.school.findMany({
+          where: { coordinatorId: userId },
+          distinct: ["regionId", "regionText", "governorate"],
+          select: { region: { select: { name: true } }, regionText: true, governorate: true },
+        }),
+        db.schoolVisit.count({ where: { ...owner, createdAt: { gte: getBaghdadStartOfDay(now), lte: getBaghdadEndOfDay(now) } } }),
+        db.schoolVisit.count({ where: { ...owner, createdAt: { gte: getBaghdadDaysAgoStart(6) } } }),
+        db.schoolVisit.count({ where: owner }),
+        db.schoolVisit.count({ where: { ...owner, nextFollowUpAt: { gte: getBaghdadStartOfDay(now) } } }),
+      ]);
+      const regionNames = [...new Set(regions.map((s) => s.region?.name ?? s.regionText ?? s.governorate).filter(Boolean))];
+      return NextResponse.json({
+        employee: {
+          id: userId,
+          name: account.name,
+          role: "COORDINATOR",
+          roleLabel: "منسّق ميداني",
+          regionName: regionNames.join("، ") || "بلا منطقة مخصصة",
+        },
+        permissions,
+        stats: { schoolsCount, visitsToday, visitsWeek, visitsTotal, pendingFollowups },
+        serverTime: now.toISOString(),
+      });
+    }
     const [employee, perms] = await Promise.all([
       db.user.findUnique({
         where: { id: userId },
@@ -21,7 +51,7 @@ export async function GET() {
           workRegion: { select: { id: true, name: true, governorate: true } },
         },
       }),
-      getPermissionMap(userId),
+      getFieldPermissions(account),
     ]);
     if (!employee || !employee.isActive) {
       return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });

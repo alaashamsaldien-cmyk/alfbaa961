@@ -36,6 +36,7 @@ export interface SchoolDTO {
   coordinatorId: string | null;
   coordinator: { id: string; name: string } | null;
   lastVisitAt: string | null;
+  lastVisitorName?: string | null;
   notes: string | null;
   discoveryStatus: string;
   fieldMeta: FieldMeta | null;
@@ -50,6 +51,10 @@ export interface SchoolDTO {
 }
 
 export interface CoordinatorDTO {
+  canAddSchools?: boolean;
+  canRegisterVisits?: boolean;
+  canViewVisits?: boolean;
+  canViewSchools?: boolean;
   id: string;
   name: string;
   phone: string | null;

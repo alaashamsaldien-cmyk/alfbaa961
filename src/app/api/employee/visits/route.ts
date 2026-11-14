@@ -6,36 +6,25 @@
 // الاطلاع على زيارات الموظفين الآخرين يتطلب صلاحية «إدارة البيانات» في قسم الزيارات.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireEmployee } from "@/lib/auth";
-import { checkPermission, getPermissionMap } from "@/lib/permissions";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, fieldVisitOwner } from "@/lib/field-account";
+import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { isInsideIraq } from "@/lib/geo/iraq";
-import { parseVisitFilters } from "@/lib/visit-filters";
+import { parseVisitFilters, VISIT_CONTACT_TYPES } from "@/lib/visit-filters";
 
-const CONTACT_TYPES = ["FIELD_VISIT", "PHONE", "WHATSAPP", "SMS", "MEETING"] as const;
 const RESULTS = ["INITIAL_APPROVAL", "APPROVED", "NEEDS_ANOTHER_VISIT", "CONTRACTED", "REJECTED", "SCHOOL_NOT_FOUND", "OTHER"] as const;
 const NEEDS = ["PAINT", "SEATS", "SMART_SCREEN", "AC", "NONE", "OTHER"] as const;
 
-function employeeSchoolScope(employee: { governorate: string | null; regionId: string | null }): Record<string, unknown> {
-  const and: Record<string, unknown>[] = [];
-  if (employee.governorate) and.push({ governorate: employee.governorate });
-  if (employee.regionId) and.push({ regionId: employee.regionId });
-  return and.length ? { AND: and } : {};
-}
-
 export async function GET(request: NextRequest) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     if (!checkPermission(perms, "visits", "view").ok) {
       return NextResponse.json({ error: "غير مصرح — لا تملك صلاحية الاطلاع على الزيارات.", code: "ACTION_DENIED" }, { status: 403 });
     }
     const seeOthers = checkPermission(perms, "visits", "manage").ok; // منح المدير صلاحية رؤية زيارات الآخرين
-
-    const employee = await db.user.findUnique({ where: { id: principal.userId }, select: { governorate: true, regionId: true } });
-    if (!employee) return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
 
     const sp = request.nextUrl.searchParams;
     const page = Math.max(1, Number(sp.get("page") ?? 1) || 1);
@@ -45,9 +34,9 @@ export async function GET(request: NextRequest) {
     const filters = parseVisitFilters(sp);
     const where: Record<string, unknown> = {};
     if (!seeOthers) {
-      where.employeeId = principal.userId; // زياراته هو فقط — منع صارم لزيارات الآخرين
+      Object.assign(where, fieldVisitOwner(principal)); // زياراته هو فقط — منع صارم لزيارات الآخرين
     } else {
-      where.school = employeeSchoolScope(employee);
+      where.school = await getFieldSchoolScope(principal);
     }
     if (filters.createdAt) where.createdAt = filters.createdAt;
     if (filters.contactType) where.contactType = filters.contactType;
@@ -61,8 +50,9 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          school: { select: { name: true, regionText: true, region: { select: { name: true } }, governorate: true } },
+          school: { select: { name: true, address: true, regionText: true, region: { select: { name: true } }, governorate: true } },
           employee: { select: { name: true } },
+          coordinator: { select: { name: true } },
         },
       }),
     ]);
@@ -75,6 +65,7 @@ export async function GET(request: NextRequest) {
       visits: visits.map((v) => ({
         id: v.id,
         contactType: v.contactType,
+        contactOther: v.contactOther,
         result: v.result,
         resultOther: v.resultOther,
         rejectionReason: v.rejectionReason,
@@ -90,9 +81,10 @@ export async function GET(request: NextRequest) {
         createdAt: v.createdAt.toISOString(),
         schoolId: v.schoolId,
         schoolName: v.school.name,
+        schoolAddress: v.school.address,
         regionName: v.school.region?.name ?? v.school.regionText,
-        employeeName: v.employee?.name ?? null,
-        isMine: v.employeeId === principal.userId,
+        employeeName: v.coordinator?.name ?? v.employee?.name ?? null,
+        isMine: principal.isCoordinator ? v.coordinatorId === principal.userId : v.employeeId === principal.userId,
       })),
     });
   } catch (error) {
@@ -102,16 +94,19 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     if (!checkPermission(perms, "visit_register", "create").ok) {
       return NextResponse.json({ error: "غير مصرح — لا تملك صلاحية تسجيل زيارة.", code: "ACTION_DENIED" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
+    if (body.accountId !== undefined && body.accountId !== principal.userId) {
+      return NextResponse.json({ error: "هذه الزيارة محفوظة لحساب آخر." }, { status: 403 });
+    }
 
     // ——— مفتاح منع التكرار: إلزامي — إعادة الإرسال تعيد السجل الأصلي دون تكرار ———
     const dedupeKey = typeof body.dedupeKey === "string" && body.dedupeKey.trim() ? body.dedupeKey.trim() : "";
@@ -121,6 +116,8 @@ export async function POST(request: NextRequest) {
 
     const existing = await db.schoolVisit.findUnique({ where: { dedupeKey } });
     if (existing) {
+      const owner = principal.isCoordinator ? existing.coordinatorId : existing.employeeId;
+      if (owner !== principal.userId) return NextResponse.json({ error: "مفتاح زيارة مستخدم." }, { status: 409 });
       // إعادة إرسال بعد انقطاع شبكة: الزيارة مسجلة بالفعل — نعيد السجل الأصلي دون تكرار
       return NextResponse.json(
         { visit: { id: existing.id, dedupeKey: existing.dedupeKey, createdAt: existing.createdAt.toISOString() }, duplicate: true },
@@ -128,23 +125,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const employee = await db.user.findUnique({
-      where: { id: principal.userId },
-      select: { governorate: true, regionId: true, name: true, isActive: true },
-    });
-    if (!employee || !employee.isActive) {
-      return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
-    }
-
     // ——— الخطوة 1: المدرسة ضمن نطاق عمل الموظف ———
     const schoolId = typeof body.schoolId === "string" ? body.schoolId : "";
     if (!schoolId) return NextResponse.json({ error: "اختيار المدرسة مطلوب." }, { status: 400 });
-    const scope: Record<string, unknown> = { id: schoolId };
-    const and: Record<string, unknown>[] = [];
-    if (employee.governorate) and.push({ governorate: employee.governorate });
-    if (employee.regionId) and.push({ regionId: employee.regionId });
-    if (and.length) scope.AND = and;
-    const school = await db.school.findFirst({ where: scope as never });
+    const school = await db.school.findFirst({ where: { id: schoolId, ...await getFieldSchoolScope(principal) } });
     if (!school) return NextResponse.json({ error: "المدرسة غير موجودة أو خارج نطاق عملك." }, { status: 404 });
 
     // الموقع: إلزامي — يُحدد في الخطوة الأولى (GPS أو خريطة أو تأكيد محفوظ) ويُحفظ مع الزيارة
@@ -160,9 +144,14 @@ export async function POST(request: NextRequest) {
     }
 
     // ——— الخطوة 2: نوع التواصل ———
-    const contactType = CONTACT_TYPES.includes(body.contactType) ? body.contactType : null;
+    const contactType = VISIT_CONTACT_TYPES.includes(body.contactType) ? body.contactType : null;
     if (!contactType) {
       return NextResponse.json({ error: "نوع التواصل مطلوب (الخطوة الثانية)." }, { status: 400 });
+    }
+
+    const contactOther = contactType === "OTHER" && typeof body.contactOther === "string" ? body.contactOther.trim() : null;
+    if (contactType === "OTHER" && !contactOther) {
+      return NextResponse.json({ error: "اكتب نوع التواصل عند اختيار «أخرى»." }, { status: 400 });
     }
 
     // ——— الخطوة 3: نتيجة الزيارة ———
@@ -203,7 +192,8 @@ export async function POST(request: NextRequest) {
     const subscribersCount = typeof body.subscribersCount === "number" && Number.isFinite(body.subscribersCount) && body.subscribersCount >= 0 ? Math.round(body.subscribersCount) : null;
     let nextFollowUpAt: Date | null = null;
     if (typeof body.nextFollowUpAt === "string" && body.nextFollowUpAt) {
-      const parsed = new Date(body.nextFollowUpAt);
+      const date = body.nextFollowUpAt;
+      const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T00:00:00+03:00` : date);
       if (Number.isNaN(parsed.getTime())) {
         return NextResponse.json({ error: "موعد المتابعة القادم غير صحيح." }, { status: 400 });
       }
@@ -235,8 +225,9 @@ export async function POST(request: NextRequest) {
         data: {
           dedupeKey,
           schoolId,
-          employeeId: principal.userId,
+          ...fieldVisitOwner(principal),
           contactType,
+          contactOther,
           result,
           resultOther,
           rejectionReason,
@@ -265,8 +256,11 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      if (contactType === "FIELD_VISIT") {
-        await tx.school.update({ where: { id: schoolId }, data: { lastVisitAt: created.createdAt } });
+      if (principal.isCoordinator || contactType === "FIELD_VISIT") {
+        await tx.school.updateMany({
+          where: { id: schoolId, OR: [{ lastVisitAt: null }, { lastVisitAt: { lt: created.createdAt } }] },
+          data: { lastVisitAt: created.createdAt },
+        });
       }
 
       // ربط الزيارة بسجل النشاطات المركزي الحالي — تظهر فوراً في لوحة الإدارة
@@ -274,7 +268,8 @@ export async function POST(request: NextRequest) {
         data: {
           type: contactType === "FIELD_VISIT" ? "VISIT" : "CALL",
           schoolId,
-          userId: principal.userId,
+          coordinatorId: principal.isCoordinator ? principal.userId : undefined,
+          userId: principal.isCoordinator ? undefined : principal.userId,
           occurredAt: created.createdAt,
           result:
             result === "OTHER" && resultOther
@@ -295,18 +290,33 @@ export async function POST(request: NextRequest) {
       await tx.notification.create({
         data: {
           title: contactType === "FIELD_VISIT" ? "زيارة ميدانية جديدة" : "تواصل جديد من موظف",
-          message: `الموظف «${employee.name}» سجل ${contactType === "FIELD_VISIT" ? "زيارة" : "تواصل"} على مدرسة «${school.name}».`,
+          message: `${principal.isCoordinator ? "المنسّق" : "الموظف"} «${principal.name}» سجل ${contactType === "FIELD_VISIT" ? "زيارة" : "تواصل"} على مدرسة «${school.name}».`,
           type: "INFO",
         },
       });
 
       return created;
+    }).catch(async (error: unknown) => {
+      if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "P2002") throw error;
+      return null;
     });
 
+    if (!visit) {
+      const registered = await db.schoolVisit.findUnique({ where: { dedupeKey } });
+      const owner = principal.isCoordinator ? registered?.coordinatorId : registered?.employeeId;
+      if (!registered || owner !== principal.userId) {
+        return NextResponse.json({ error: "مفتاح زيارة مستخدم." }, { status: 409 });
+      }
+      return NextResponse.json({
+        visit: { id: registered.id, dedupeKey, createdAt: registered.createdAt.toISOString() },
+        duplicate: true,
+      });
+    }
+
     await logAudit({
-      actorType: "EMPLOYEE",
+      actorType: principal.isCoordinator ? "COORDINATOR" : "EMPLOYEE",
       actorId: principal.userId,
-      actorName: employee.name ?? "موظف",
+      actorName: principal.name ?? "موظف",
       action: AUDIT_ACTIONS.REGISTER_VISIT,
       entityType: "SCHOOL_VISIT",
       entityId: visit.id,

@@ -9,7 +9,8 @@ const CONTACT_TYPE_LABELS: Record<string, string> = {
   PHONE: "اتصال هاتفي",
   WHATSAPP: "واتساب",
   SMS: "رسالة SMS",
-  MEETING: "اجتماع متابعة",
+  MEETING: "اجتماع ومتابعة",
+  OTHER: "أخرى",
 };
 
 const RESULT_LABELS: Record<string, string> = {
@@ -77,6 +78,7 @@ export async function buildVisitsExportWorkbook(
     include: {
       school: { select: { name: true, governorate: true, regionText: true, region: { select: { name: true } } } },
       employee: { select: { name: true, jobTitle: true } },
+      coordinator: { select: { name: true } },
     },
   });
 
@@ -85,9 +87,9 @@ export async function buildVisitsExportWorkbook(
     "المدرسة": v.school.name,
     "المحافظة": v.school.governorate ?? null,
     "المنطقة": v.school.region?.name ?? v.school.regionText ?? null,
-    "الموظف": v.employee?.name ?? null,
-    "المسمى الوظيفي": v.employee?.jobTitle ?? null,
-    "نوع التواصل": CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType,
+    "الموظف": v.coordinator?.name ?? v.employee?.name ?? null,
+    "المسمى الوظيفي": v.coordinator ? "منسّق ميداني" : v.employee?.jobTitle ?? null,
+    "نوع التواصل": v.contactOther ?? CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType,
     "النتيجة": RESULT_LABELS[v.result] ?? v.result,
     "نص النتيجة (أخرى)": v.resultOther ?? null,
     "سبب الرفض": v.rejectionReason ?? null,
@@ -139,6 +141,10 @@ export async function buildVisitsExportWorkbook(
 }
 
 async function employeeName(id: string): Promise<string> {
+  if (id.startsWith("coordinator:")) {
+    const coordinator = await db.coordinator.findUnique({ where: { id: id.slice("coordinator:".length) }, select: { name: true } });
+    return coordinator?.name ?? id;
+  }
   const u = await db.user.findUnique({ where: { id }, select: { name: true } });
   return u?.name ?? id;
 }

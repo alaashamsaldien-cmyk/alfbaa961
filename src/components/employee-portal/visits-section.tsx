@@ -25,6 +25,7 @@ const NEEDS_LABELS: Record<string, string> = {
 interface MyVisitRow {
   id: string;
   contactType: string;
+  contactOther: string | null;
   result: string;
   resultOther: string | null;
   rejectionReason: string | null;
@@ -39,6 +40,7 @@ interface MyVisitRow {
   createdAt: string;
   schoolId: string;
   schoolName: string;
+  schoolAddress: string | null;
   regionName: string | null;
   employeeName: string | null;
   isMine: boolean;
@@ -49,6 +51,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
   const [rows, setRows] = useState<MyVisitRow[]>([]);
   const [total, setTotal] = useState(0);
   const [period, setPeriod] = useState("all");
+  const [contactType, setContactType] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,30 +59,37 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
   const [detail, setDetail] = useState<MyVisitRow | null>(null);
 
   const filterParams = useCallback(() => {
-    const params = new URLSearchParams({ period });
+    const params = new URLSearchParams({ period, contactType });
     if (dateFrom) params.set("dateFrom", dateFrom);
     if (dateTo) params.set("dateTo", dateTo);
     return params;
-  }, [period, dateFrom, dateTo]);
+  }, [period, contactType, dateFrom, dateTo]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (background = false, signal?: AbortSignal) => {
+    if (!background) setLoading(true);
     try {
-      const res = await fetch(`/api/employee/visits?${filterParams().toString()}&pageSize=30`, { cache: "no-store" });
+      const res = await fetch(`/api/employee/visits?${filterParams().toString()}&pageSize=30`, { cache: "no-store", signal });
       const j = await res.json();
       if (res.ok) {
         setRows(j.visits ?? []);
         setTotal(j.total ?? 0);
-      } else {
+      } else if (!background) {
         toast({ title: "تعذر جلب الزيارات", description: j?.error, variant: "destructive" });
       }
+    } catch {
+      if (!background && !signal?.aborted) toast({ title: "تعذر جلب الزيارات", variant: "destructive" });
     } finally {
-      setLoading(false);
+      if (!background && !signal?.aborted) setLoading(false);
     }
   }, [filterParams, toast]);
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(false, controller.signal);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") load(true, controller.signal);
+    }, 30_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
   }, [load]);
 
   // الفترة الجاهزة والنطاق المخصص يتبادلان — تحديد تاريخ يعيد الفترة إلى «الكل»
@@ -132,7 +142,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
               <SelectItem value="month">آخر 30 يوماً</SelectItem>
             </SelectContent>
           </Select>
-          <Button type="button" variant="outline" size="icon" className="h-9 w-9" onClick={load} aria-label="تحديث">
+          <Button type="button" variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} aria-label="تحديث">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
         </div>
@@ -140,6 +150,15 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
 
       {/* فلتر تاريخ مخصص (بتوقيت بغداد) + زر التصدير */}
       <div className="flex flex-wrap items-center gap-2">
+        <Select value={contactType} onValueChange={setContactType}>
+          <SelectTrigger className="h-9 w-full bg-white" aria-label="نوع التواصل"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">كل أنواع التواصل</SelectItem>
+            {Object.entries(VISIT_CONTACT_TYPE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <div className="flex flex-1 items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5">
           <span className="text-[10px] font-semibold text-muted-foreground">من</span>
           <Input
@@ -202,6 +221,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-foreground">{v.schoolName}</p>
+                  {v.schoolAddress && <p className="text-xs text-muted-foreground">{v.schoolAddress}</p>}
                   <p className="text-[10px] text-muted-foreground" suppressHydrationWarning>
                     {formatFullDate(v.createdAt)} · {formatTime(v.createdAt)}
                     {!v.isMine && v.employeeName ? ` · المسجلة من: ${v.employeeName}` : ""}
@@ -211,7 +231,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1">
                 <Badge variant="outline" className="text-[9px] bg-sky-50 text-sky-700 border-sky-200">
-                  {VISIT_CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType}
+                  {v.contactOther ?? VISIT_CONTACT_TYPE_LABELS[v.contactType] ?? v.contactType}
                 </Badge>
                 <Badge variant="outline" className="text-[9px] bg-emerald-50 text-emerald-700 border-emerald-200">
                   {v.result === "OTHER" && v.resultOther ? v.resultOther : VISIT_RESULT_LABELS[v.result] ?? v.result}
@@ -233,7 +253,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
           {detail && (
             <div className="space-y-1.5 text-xs">
               {[
-                { label: "نوع التواصل", value: VISIT_CONTACT_TYPE_LABELS[detail.contactType] ?? detail.contactType },
+                { label: "نوع التواصل", value: detail.contactOther ?? VISIT_CONTACT_TYPE_LABELS[detail.contactType] ?? detail.contactType },
                 { label: "النتيجة", value: detail.result === "OTHER" && detail.resultOther ? `أخرى — ${detail.resultOther}` : VISIT_RESULT_LABELS[detail.result] ?? detail.result },
                 ...(detail.rejectionReason ? [{ label: "سبب الرفض", value: detail.rejectionReason }] : []),
                 { label: "الشخص المتواصل معه", value: detail.contactPersonName ?? "—" },

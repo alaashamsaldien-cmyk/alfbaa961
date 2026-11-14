@@ -22,6 +22,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
           },
         },
         employee: { select: { id: true, name: true, username: true, jobTitle: true, phone: true } },
+        coordinator: { select: { id: true, name: true, username: true, phone: true } },
       },
     });
     if (!visit) return NextResponse.json({ error: "الزيارة غير موجودة." }, { status: 404 });
@@ -39,6 +40,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
         id: visit.id,
         createdAt: visit.createdAt.toISOString(),
         contactType: visit.contactType,
+        contactOther: visit.contactOther,
         result: visit.result,
         resultOther: visit.resultOther,
         rejectionReason: visit.rejectionReason,
@@ -61,7 +63,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
           ...visit.school,
           regionName: visit.school.region?.name ?? visit.school.regionText,
         },
-        employee: visit.employee,
+        employee: visit.coordinator ? { ...visit.coordinator, jobTitle: "منسّق ميداني" } : visit.employee,
       },
       auditEntries: auditEntries.map((a) => ({
         id: a.id,

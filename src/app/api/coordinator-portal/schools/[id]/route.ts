@@ -40,8 +40,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const principal = await getPrincipal();
     let coordinatorId: string | null = null;
     if (principal?.type === "COORDINATOR") {
-      coordinatorId = principal.coordinatorId; // من الجلسة — لا يقبل وسائط خارجية
-    } else if (principal?.type === "ADMIN") {
+      return NextResponse.json({ error: "تُحدّث بيانات المدرسة من نموذج الزيارة." }, { status: 403 });
+    } else if (principal?.type === "ADMIN" && principal.role === "ADMIN") {
       coordinatorId = typeof body.coordinatorId === "string" && body.coordinatorId ? body.coordinatorId : null;
     }
     if (!coordinatorId) {

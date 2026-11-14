@@ -4,27 +4,19 @@
 // POST إضافة مدرسة يدوياً يتطلب schools.create — تُسجل بمصدر MANUAL_ENTRY وتُدقق جغرافياً.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireEmployee } from "@/lib/auth";
-import { checkPermission, getPermissionMap } from "@/lib/permissions";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope } from "@/lib/field-account";
+import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { computeDataQuality } from "@/lib/geo/normalize";
 import { isInsideIraq } from "@/lib/geo/iraq";
 
-/** شرط نطاق عمل الموظف على جدول المدارس — يُطبق إلزامياً في كل استعلام */
-function employeeSchoolScope(employee: { governorate: string | null; regionId: string | null }): Record<string, unknown> {
-  const and: Record<string, unknown>[] = [];
-  if (employee.governorate) and.push({ governorate: employee.governorate });
-  if (employee.regionId) and.push({ regionId: employee.regionId });
-  return and.length ? { AND: and } : {};
-}
-
 export async function GET(request: NextRequest) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
     // القائمة تخدم قسمين: المدارس (view) ونموذج تسجيل الزيارة (اختيار المدرسة)
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     const schoolsView = checkPermission(perms, "schools", "view").ok;
     const viaVisitForm =
       checkPermission(perms, "visit_register", "create").ok ||
@@ -39,13 +31,9 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const q = sp.get("q")?.trim();
     const limit = Math.min(500, Math.max(1, Number(sp.get("limit") ?? 200) || 200));
-    const employee = await db.user.findUnique({
-      where: { id: principal.userId },
-      select: { governorate: true, regionId: true },
-    });
-    if (!employee) return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
+    const scope = await getFieldSchoolScope(principal);
 
-    const where: Record<string, unknown> = { ...employeeSchoolScope(employee) };
+    const where: Record<string, unknown> = { ...scope };
     if (q) {
       where.OR = [
         { name: { contains: q } },
@@ -70,7 +58,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      scope: { governorate: employee.governorate, regionId: employee.regionId },
+      scope,
       total: schools.length,
       schools: schools.map((s) => ({
         ...s,
@@ -86,11 +74,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     if (!checkPermission(perms, "schools", "create").ok) {
       return NextResponse.json(
         { error: "غير مصرح — لا تملك صلاحية إضافة مدرسة جديدة.", code: "ACTION_DENIED" },
@@ -102,15 +90,9 @@ export async function POST(request: NextRequest) {
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) return NextResponse.json({ error: "اسم المدرسة مطلوب." }, { status: 400 });
 
-    const employee = await db.user.findUnique({
-      where: { id: principal.userId },
-      select: { governorate: true, regionId: true, name: true },
-    });
-    if (!employee) return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
+    const scope = await getFieldSchoolScope(principal);
 
-    const governorate = typeof body.governorate === "string" && body.governorate.trim()
-      ? body.governorate.trim()
-      : employee.governorate ?? "بغداد";
+    const governorate = (scope.governorate ?? (typeof body.governorate === "string" ? body.governorate.trim() : "")) || "بغداد";
 
     // إحداثيات اختيارية — تُدقق جغرافياً إن وُجدت (داخل العراق فقط)
     let lat: number | null = null;
@@ -125,7 +107,7 @@ export async function POST(request: NextRequest) {
 
     // المنطقة: نص حر يُطابق جدول المناطق أو ينشئ منطقة جديدة ضمن المحافظة
     const regionText = typeof body.regionText === "string" && body.regionText.trim() ? body.regionText.trim() : null;
-    let regionId = employee.regionId;
+    let regionId = scope.regionId ?? null;
     if (!regionId && regionText) {
       const region = await db.region.upsert({
         where: { name_governorate: { name: regionText, governorate } },
@@ -149,6 +131,7 @@ export async function POST(request: NextRequest) {
         name,
         governorate,
         regionId,
+        coordinatorId: scope.coordinatorId,
         regionText,
         phone,
         principalName,
@@ -166,9 +149,9 @@ export async function POST(request: NextRequest) {
     });
 
     await logAudit({
-      actorType: "EMPLOYEE",
+      actorType: principal.isCoordinator ? "COORDINATOR" : "EMPLOYEE",
       actorId: principal.userId,
-      actorName: employee.name ?? "موظف",
+      actorName: principal.name ?? "موظف",
       action: AUDIT_ACTIONS.EMPLOYEE_CREATE_SCHOOL,
       entityType: "SCHOOL",
       entityId: school.id,
@@ -178,12 +161,19 @@ export async function POST(request: NextRequest) {
     await db.notification.create({
       data: {
         title: "إضافة مدرسة جديدة",
-        message: `الموظف «${employee.name}» أضاف مدرسة «${name}» يدوياً${governorate ? ` — ${governorate}` : ""}.`,
+        message: `الموظف «${principal.name}» أضاف مدرسة «${name}» يدوياً${governorate ? ` — ${governorate}` : ""}.`,
         type: "SUCCESS",
       },
     });
 
-    return NextResponse.json({ school: { id: school.id, name: school.name } }, { status: 201 });
+    const region = regionId ? await db.region.findUnique({ where: { id: regionId }, select: { name: true } }) : null;
+    return NextResponse.json({
+      school: {
+        ...school, osmId: school.osmId === null ? null : Number(school.osmId),
+        regionName: region?.name ?? regionText,
+        hasCoords: school.lat !== null && school.lng !== null,
+      },
+    }, { status: 201 });
   } catch (error) {
     console.error("خطأ في إضافة مدرسة من الموظف:", error);
     return NextResponse.json({ error: "تعذر إضافة المدرسة." }, { status: 500 });

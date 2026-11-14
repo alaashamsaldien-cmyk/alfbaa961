@@ -4,31 +4,19 @@
 //        مسموح لمن يملك صلاحية تسجيل زيارة أو تعديل المدارس — وكل تحديث يُسجل في سجل التغييرات.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireEmployee } from "@/lib/auth";
-import { checkPermission, getPermissionMap } from "@/lib/permissions";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, fieldVisitOwner } from "@/lib/field-account";
+import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { isInsideIraq } from "@/lib/geo/iraq";
 
 type Params = { params: Promise<{ id: string }> };
 
-async function loadScopedSchool(schoolId: string, employee: { governorate: string | null; regionId: string | null }) {
-  const scope: Record<string, unknown> = { id: schoolId };
-  const and: Record<string, unknown>[] = [];
-  if (employee.governorate) and.push({ governorate: employee.governorate });
-  if (employee.regionId) and.push({ regionId: employee.regionId });
-  if (and.length) scope.AND = and;
-  return db.school.findFirst({
-    where: scope as never,
-    include: { region: { select: { name: true } } },
-  });
-}
-
 export async function GET(_request: NextRequest, { params }: Params) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     const schoolsView = checkPermission(perms, "schools", "view").ok;
     const viaVisitForm = checkPermission(perms, "visit_register", "view").ok || checkPermission(perms, "visit_register", "create").ok;
     if (!schoolsView && !viaVisitForm) {
@@ -36,15 +24,16 @@ export async function GET(_request: NextRequest, { params }: Params) {
     }
 
     const { id } = await params;
-    const employee = await db.user.findUnique({ where: { id: principal.userId }, select: { governorate: true, regionId: true } });
-    if (!employee) return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
-
-    const school = await loadScopedSchool(id, employee);
+    const scope = await getFieldSchoolScope(principal);
+    const school = await db.school.findFirst({
+      where: { id, ...scope },
+      include: { region: { select: { name: true } } },
+    });
     if (!school) return NextResponse.json({ error: "المدرسة غير موجودة ضمن نطاق عملك." }, { status: 404 });
 
     // آخر زيارات الموظف نفسه على هذه المدرسة (لا يرى زيارات الآخرين)
     const myRecentVisits = await db.schoolVisit.findMany({
-      where: { schoolId: id, employeeId: principal.userId },
+      where: { schoolId: id, ...fieldVisitOwner(principal) },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: { id: true, contactType: true, result: true, createdAt: true, notes: true },
@@ -53,6 +42,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({
       school: {
         ...school,
+        osmId: school.osmId === null ? null : Number(school.osmId),
         regionName: school.region?.name ?? school.regionText ?? null,
         hasCoords: school.lat !== null && school.lng !== null,
         lastVisitAt: school.lastVisitAt?.toISOString() ?? null,
@@ -66,11 +56,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
-  const guard = await requireEmployee();
-  if ("response" in guard && guard.response) return guard.response;
-  const principal = (guard as { principal: { userId: string; name: string } }).principal;
+  const guard = await requireFieldAccount();
+  if (!guard.principal) return guard.response!;
+  const principal = guard.principal;
   try {
-    const perms = await getPermissionMap(principal.userId);
+    const perms = await getFieldPermissions(principal);
     // تحديث الموقع مسموح: أثناء تدفق تسجيل الزيارة، أو لمن يملك صلاحية تعديل المدارس
     const viaVisitFlow = checkPermission(perms, "visit_register", "create").ok;
     const viaSchoolsEdit = checkPermission(perms, "schools", "edit").ok;
@@ -79,10 +69,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     const { id } = await params;
-    const employee = await db.user.findUnique({ where: { id: principal.userId }, select: { governorate: true, regionId: true, name: true } });
-    if (!employee) return NextResponse.json({ error: "الحساب غير متاح." }, { status: 403 });
-
-    const school = await loadScopedSchool(id, employee);
+    const scope = await getFieldSchoolScope(principal);
+    const school = await db.school.findFirst({
+      where: { id, ...scope },
+      include: { region: { select: { name: true } } },
+    });
     if (!school) return NextResponse.json({ error: "المدرسة غير موجودة ضمن نطاق عملك." }, { status: 404 });
 
     const body = await request.json().catch(() => ({}));
@@ -104,13 +95,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const before = { lat: school.lat, lng: school.lng };
     const changed = before.lat !== lat || before.lng !== lng;
 
-    await db.school.update({ where: { id }, data: { lat, lng } });
+    const updated = await db.school.updateMany({ where: { id, ...scope }, data: { lat, lng } });
+    if (!updated.count) {
+      return NextResponse.json({ error: "المدرسة غير موجودة ضمن نطاق عملك." }, { status: 404 });
+    }
 
     // سجل التغييرات: كل تحديث موقع يُوثق في سجل التدقيق (قبل/بعد/المصدر/الدقة)
     await logAudit({
-      actorType: "EMPLOYEE",
+      actorType: principal.isCoordinator ? "COORDINATOR" : "EMPLOYEE",
       actorId: principal.userId,
-      actorName: employee.name ?? "موظف",
+      actorName: principal.name ?? "موظف",
       action: AUDIT_ACTIONS.EMPLOYEE_UPDATE_SCHOOL_LOCATION,
       entityType: "SCHOOL",
       entityId: id,

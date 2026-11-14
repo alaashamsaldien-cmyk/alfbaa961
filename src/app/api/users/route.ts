@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { hashPassword, requireAdmin } from "@/lib/auth";
 
 const USERNAME_RE = /^[a-zA-Z0-9._-]{3,32}$/;
-export const USER_ROLES = ["ADMIN", "MANAGER", "STAFF"] as const;
+const USER_ROLES = ["ADMIN", "MANAGER", "STAFF"] as const;
 
 export async function GET() {
   const guard = await requireAdmin();

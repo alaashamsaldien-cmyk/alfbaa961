@@ -9,13 +9,11 @@
 // التنقل عبر القائمة الجانبية مع مزامنة مع hash الرابط داخل المعاينة.
 
 import { useCallback, useEffect, useState } from "react";
-import { GraduationCap, LogOut, MapPin } from "lucide-react";
+import { GraduationCap } from "lucide-react";
 import { DesktopSidebar, MobileSidebar } from "@/components/dashboard/sidebar";
 import { TopBar, type TopBarUser } from "@/components/dashboard/topbar";
-import { NotificationsBell } from "@/components/dashboard/notifications-bell";
 import { DashboardSection } from "@/components/dashboard/dashboard-section";
 import { SchoolsView } from "@/components/schools/schools-view";
-import { CoordinatorsView } from "@/components/coordinators/coordinators-view";
 import { CoordinatorPortalView } from "@/components/coordinator-portal/portal-view";
 import { RegionsView } from "@/components/regions/regions-view";
 import { DistributionView } from "@/components/distribution/distribution-view";
@@ -23,7 +21,6 @@ import { VisitsView } from "@/components/visits/visits-view";
 import { ReviewsView } from "@/components/reviews/reviews-view";
 import { ReportsView } from "@/components/reports/reports-view";
 import { SettingsView } from "@/components/settings/settings-view";
-import { EmployeesView } from "@/components/employees/employees-view";
 import { EmployeePortalView } from "@/components/employee-portal/portal-view";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { formatFullDate } from "@/lib/time";
@@ -210,60 +207,8 @@ export default function DashboardPage() {
   }
 
   // —— بوابة المنسقة الميدانية: واجهة خاصة كاملة عند تسجيل دخولها ——
-  if (auth.status === "coordinator") {
-    const today = formatFullDate(new Date());
-    return (
-      <div className="min-h-screen bg-background" dir="rtl">
-        <header className="sticky top-0 z-40 border-b bg-sidebar">
-          <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 lg:px-6">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
-              <GraduationCap className="h-6 w-6 text-sky-400" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-base font-bold text-white">بوابة المنسقة الميدانية</h1>
-              <p className="truncate text-xs text-sidebar-foreground/80">منصة ألف باء — مدارسك ومناطقك المخصصة</p>
-            </div>
-            <div
-              className="hidden items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 md:flex"
-              suppressHydrationWarning
-            >
-              <MapPin className="h-3.5 w-3.5 text-sky-400" aria-hidden="true" />
-              <span className="text-xs font-medium text-sidebar-foreground">{today}</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-500 text-sm font-bold text-white">
-                {auth.name.trim().charAt(0)}
-              </div>
-              <div className="hidden leading-tight sm:block">
-                <p className="max-w-[140px] truncate text-sm font-semibold text-white">{auth.name}</p>
-                <p className="text-[11px] text-sidebar-foreground/80">منسقة ميدانية</p>
-              </div>
-            </div>
-            <NotificationsBell />
-            <button
-              type="button"
-              onClick={logout}
-              className="flex h-9 items-center gap-1.5 rounded-lg border border-sidebar-border bg-white/5 px-3 text-xs font-semibold text-sidebar-foreground hover:bg-white/10"
-              aria-label="تسجيل الخروج"
-            >
-              <LogOut className="h-4 w-4" aria-hidden="true" />
-              خروج
-            </button>
-          </div>
-        </header>
-        <main className="mx-auto max-w-[1440px] space-y-6 p-4 lg:p-6" aria-label="بوابة المنسقة">
-          <CoordinatorPortalView mode="session" onLogout={logout} />
-          <footer className="pb-4 text-center text-xs text-sidebar-foreground/60">
-            منصة ألف باء · بوابة المنسقة الميدانية
-          </footer>
-        </main>
-      </div>
-    );
-  }
-
-  // —— بوابة الموظف: واجهة موبايل مخصصة حسب صلاحياته من المدير ——
-  if (auth.status === "employee") {
-    return <EmployeePortalView employeeName={auth.name} onLogout={logout} />;
+  if (auth.status === "coordinator" || auth.status === "employee") {
+    return <EmployeePortalView onLogout={logout} />;
   }
 
   // —— لوحة الإدارة الكاملة (كما هي دون أي تغيير في التصميم) ——
@@ -271,8 +216,8 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DesktopSidebar activeKey={section === "portal" ? "coordinators" : section} onSelect={navigate} />
-      <MobileSidebar open={mobileNavOpen} onOpenChange={setMobileNavOpen} activeKey={section === "portal" ? "coordinators" : section} onSelect={navigate} />
+      <DesktopSidebar activeKey={["portal", "coordinators", "employees"].includes(section) ? "settings" : section} onSelect={navigate} />
+      <MobileSidebar open={mobileNavOpen} onOpenChange={setMobileNavOpen} activeKey={["portal", "coordinators", "employees"].includes(section) ? "settings" : section} onSelect={navigate} />
 
       <div className="lg:ms-64">
         <TopBar user={auth.user} onOpenMobileNav={() => setMobileNavOpen(true)} pageName={meta.name} pageSubtitle={meta.subtitle} onLogout={logout} />
@@ -281,13 +226,14 @@ export default function DashboardPage() {
           {section === "dashboard" && <DashboardSection />}
           {section === "schools" && <SchoolsView />}
           {section === "regions" && <RegionsView />}
-          {section === "coordinators" && <CoordinatorsView onOpenPortal={() => navigate("portal")} />}
-          {section === "employees" && <EmployeesView />}
           {section === "distribution" && <DistributionView />}
           {section === "visits" && <VisitsView />}
           {section === "reviews" && <ReviewsView />}
           {section === "reports" && <ReportsView />}
-          {section === "settings" && <SettingsView onLogout={logout} />}
+          {(section === "settings" || section === "employees" || section === "coordinators") && (
+            <SettingsView key={section} onLogout={logout} onOpenPortal={() => navigate("portal")}
+              defaultTab={section === "settings" ? "employees" : section} />
+          )}
           {section === "portal" && <CoordinatorPortalView />}
         </main>
       </div>

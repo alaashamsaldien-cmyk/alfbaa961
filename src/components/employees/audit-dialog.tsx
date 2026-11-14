@@ -124,7 +124,7 @@ export function AuditDialog({ open, onOpenChange }: { open: boolean; onOpenChang
           {logs.map((row) => (
             <div key={row.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-white px-3 py-2">
               <Badge variant="outline" className={`text-[10px] ${row.actorType === "ADMIN" ? "bg-sky-50 text-sky-700 border-sky-200" : row.actorType === "EMPLOYEE" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-600"}`}>
-                {row.actorType === "ADMIN" ? "مدير النظام" : row.actorType === "EMPLOYEE" ? "موظف" : "النظام"}
+                {row.actorType === "ADMIN" ? "مدير النظام" : row.actorType === "EMPLOYEE" ? "موظف" : row.actorType === "COORDINATOR" ? "منسّق ميداني" : "النظام"}
               </Badge>
               <span className="text-xs font-bold text-foreground">{row.actorName}</span>
               <span className="text-xs text-muted-foreground">

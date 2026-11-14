@@ -236,13 +236,35 @@ export async function listSchools(filters: SchoolFilters) {
       include: {
         region: true,
         coordinator: { select: { id: true, name: true } },
+        schoolVisits: {
+          where: { OR: [{ coordinatorId: { not: null } }, { contactType: "FIELD_VISIT" }] },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { createdAt: true, coordinator: { select: { name: true } }, employee: { select: { name: true } } },
+        },
+        activities: {
+          where: { type: "VISIT" },
+          orderBy: { occurredAt: "desc" },
+          take: 1,
+          select: { occurredAt: true, coordinator: { select: { name: true } }, user: { select: { name: true } } },
+        },
       },
       orderBy: filters.sort === "name" ? { name: "asc" } : filters.sort === "dataQuality" ? { dataQuality: "desc" } : { createdAt: "desc" },
       skip: filters.onlyMap ? 0 : (filters.page! - 1) * filters.pageSize!,
       take: filters.onlyMap ? 2000 : filters.pageSize,
     }),
   ]);
-  return { total, schools: schools.map((s) => mapSchool(s as SchoolRow)) };
+  return { total, schools: schools.map(({ schoolVisits, activities, ...school }) => {
+    const visit = schoolVisits[0];
+    const activity = activities[0];
+    const visitIsLatest = visit && (!activity || visit.createdAt >= activity.occurredAt);
+    return {
+      ...mapSchool(school as SchoolRow),
+      lastVisitorName: visitIsLatest
+        ? visit.coordinator?.name ?? visit.employee?.name ?? null
+        : activity?.coordinator?.name ?? activity?.user?.name ?? null,
+    };
+  }) };
 }
 
 /** خيارات الفلاتر الفعلية من قاعدة البيانات (لعرضها في الواجهة) */

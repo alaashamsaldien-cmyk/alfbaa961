@@ -180,7 +180,7 @@ export function VisitsView() {
 
       <Tabs defaultValue="employee-visits" className="space-y-3">
         <TabsList>
-          <TabsTrigger value="employee-visits">زيارات الموظفين</TabsTrigger>
+          <TabsTrigger value="employee-visits">استبيانات الزيارات</TabsTrigger>
           <TabsTrigger value="activities">سجل التواصل العام</TabsTrigger>
         </TabsList>
 

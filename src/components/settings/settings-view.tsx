@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EmployeesView } from "@/components/employees/employees-view";
+import { CoordinatorsView } from "@/components/coordinators/coordinators-view";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { useToast } from "@/hooks/use-toast";
@@ -31,15 +33,6 @@ interface UserItem {
   createdAt: string;
 }
 
-interface CoordinatorAccountItem {
-  id: string;
-  name: string;
-  schoolCount: number;
-  hasAccount: boolean;
-  username: string | null;
-  lastLoginAt: string | null;
-}
-
 interface SystemInfo {
   googlePlacesEnabled: boolean;
   basemapTiles: string;
@@ -53,10 +46,9 @@ const ROLE_LABELS: Record<string, string> = {
   STAFF: "موظف إداري",
 };
 
-export function SettingsView({ onLogout }: { onLogout?: () => void }) {
+export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" }: { onLogout?: () => void; onOpenPortal: () => void; defaultTab?: string }) {
   const { toast } = useToast();
   const [users, setUsers] = useState<UserItem[] | null>(null);
-  const [coordinatorAccounts, setCoordinatorAccounts] = useState<CoordinatorAccountItem[]>([]);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -69,17 +61,14 @@ export function SettingsView({ onLogout }: { onLogout?: () => void }) {
 
   const load = useCallback(async () => {
     try {
-      const [uRes, cRes, cfgRes] = await Promise.all([
+      const [uRes, cfgRes] = await Promise.all([
         fetch("/api/users", { cache: "no-store" }),
-        fetch("/api/coordinators", { cache: "no-store" }),
         fetch("/api/settings/system", { cache: "no-store" }),
       ]);
       const u = await uRes.json();
-      const c = await cRes.json();
       const cfg = await cfgRes.json();
       if (!uRes.ok) throw new Error(u?.error);
       setUsers(u.users);
-      setCoordinatorAccounts(c?.coordinators ?? []);
       if (cfgRes.ok) setSystem(cfg);
     } catch {
       setUsers([]);
@@ -232,8 +221,9 @@ export function SettingsView({ onLogout }: { onLogout?: () => void }) {
         </Button>
       </div>
 
-      <Tabs defaultValue="users" className="space-y-4">
-        <TabsList className="flex-wrap">
+      <Tabs defaultValue={defaultTab} className="space-y-4">
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="employees">الموظفون والصلاحيات</TabsTrigger>
           <TabsTrigger value="users" className="gap-1.5"><UserRoundCog className="h-4 w-4" aria-hidden="true" />حسابات المستخدمين</TabsTrigger>
           <TabsTrigger value="coordinators" className="gap-1.5"><UsersRound className="h-4 w-4" aria-hidden="true" />حسابات المنسقات</TabsTrigger>
           <TabsTrigger value="password" className="gap-1.5"><KeyRound className="h-4 w-4" aria-hidden="true" />كلمة مروري</TabsTrigger>
@@ -347,41 +337,11 @@ export function SettingsView({ onLogout }: { onLogout?: () => void }) {
           )}
         </TabsContent>
 
+        <TabsContent value="employees"><EmployeesView /></TabsContent>
+
         {/* —— حسابات المنسقات —— */}
         <TabsContent value="coordinators" className="space-y-3">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            إنشاء وإدارة حسابات دخول المنسقات من قسم «المنسقات الميدانيات» في القائمة الجانبية — هنا ملخص الحالة فقط.
-            لا توجد حسابات منسقات فعلية حتى الآن؛ ستضاف بعد اكتمال النظام من القسم المذكور.
-          </p>
-          {coordinatorAccounts.length === 0 ? (
-            <EmptyState icon={UsersRound} title="لا منسقات مسجلات" description="أضف المنسقات من قسم المنسقات الميدانيات ثم أنشئ لهن حسابات الدخول." />
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {coordinatorAccounts.map((c) => (
-                <Card key={c.id} className="p-0">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-bold">{c.name}</p>
-                        <p className="text-[11px] text-muted-foreground">{formatNumber(c.schoolCount)} مدرسة مخصصة</p>
-                      </div>
-                      {c.hasAccount ? (
-                        <Badge variant="outline" className="shrink-0 text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">لها حساب</Badge>
-                      ) : (
-                        <Badge variant="outline" className="shrink-0 text-[10px] bg-slate-100 text-slate-600 border-slate-200">بلا حساب</Badge>
-                      )}
-                    </div>
-                    {c.hasAccount && (
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        اسم الدخول: <span dir="ltr" className="font-mono font-bold">{c.username}</span>
-                        {c.lastLoginAt ? ` · آخر دخول ${formatShortDate(c.lastLoginAt)}` : ""}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+          <CoordinatorsView onOpenPortal={onOpenPortal} />
         </TabsContent>
 
         {/* —— كلمة مروري —— */}
