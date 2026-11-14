@@ -27,6 +27,7 @@ export const EXCEL_COLUMNS: { key: string; label: string; required?: boolean }[]
   { key: "phone", label: "رقم التواصل" },
   { key: "studentCount", label: "عدد الطلاب" },
   { key: "address", label: "العنوان التفصيلي" },
+  { key: "placeId", label: "معرّف Google Place ID" },
   { key: "lat", label: "خط العرض Latitude" },
   { key: "lng", label: "خط الطول Longitude" },
   { key: "website", label: "الموقع الإلكتروني" },
@@ -82,6 +83,7 @@ export function buildTemplateWorkbook(): Buffer {
     "رقم التواصل": "",
     "عدد الطلاب": "",
     "العنوان التفصيلي": "",
+    "معرّف Google Place ID": "",
     "خط العرض Latitude": 33.3182,
     "خط الطول Longitude": 44.4475,
     "الموقع الإلكتروني": "",
@@ -142,6 +144,7 @@ export async function buildExportWorkbook(filtersWhere: Record<string, unknown>)
         case "phone": base[c.label] = s.phone; break;
         case "studentCount": base[c.label] = s.studentCount; break;
         case "address": base[c.label] = s.address; break;
+        case "placeId": base[c.label] = s.placeId; break;
         case "lat": base[c.label] = s.lat; break;
         case "lng": base[c.label] = s.lng; break;
         case "website": base[c.label] = s.website; break;
@@ -256,6 +259,7 @@ export async function previewImport(fileName: string, buffer: Buffer): Promise<I
   let sim = 0;
   let err = 0;
 
+  const seenPlaceIds = new Set<string>();
   for (let i = 0; i < json.length; i++) {
     const rowNumber = i + 2; // الصف 1 للعناوين
     const r = json[i];
@@ -307,10 +311,21 @@ export async function previewImport(fileName: string, buffer: Buffer): Promise<I
       if (!/^[\d\s+\-()]+$/.test(p)) issues.push("رقم التواصل يحتوي رموزاً غير رقمية.");
     }
 
-    // فحص التكرار
-    let duplicate: ImportRowPreview["duplicate"] | undefined;
+    const placeId = typeof data.placeId === "string" ? data.placeId.trim() : "";
+    if (data.placeId && (!/^[a-zA-Z0-9_-]+$/.test(placeId) || placeId.length > 512 || seenPlaceIds.has(placeId))) {
+      issues.push("معرّف Google غير صالح أو مكرر داخل الملف.");
+      err++;
+      rows.push({ rowNumber, data, issues, missingFields, status: "ERROR" });
+      continue;
+    }
+    if (placeId) seenPlaceIds.add(placeId);
+    const samePlace = placeId && existing.find((school) => school.placeId === placeId);
+    let duplicate: ImportRowPreview["duplicate"] = samePlace
+      ? { type: "EXACT", schoolId: samePlace.id, schoolName: samePlace.name }
+      : undefined;
     // 1) تطابق دقيق بالإحداثيات (أقل من 60 متراً) أو بالمعرفات
     for (const s of existing) {
+      if (duplicate) break;
       if (s.lat !== null && s.lng !== null && validCoords) {
         const R = 6371000;
         const toRad = (v: number) => (v * Math.PI) / 180;
@@ -403,6 +418,7 @@ export async function commitImport(opts: ImportCommitOptions): Promise<ImportCom
       const school = await db.school.findUnique({ where: { id: row.duplicate!.schoolId } });
       if (!school) continue;
       const pairs: [string, unknown, unknown][] = [
+        ["placeId", d.placeId, school.placeId],
         ["phone", d.phone, school.phone],
         ["principalName", d.principalName, school.principalName],
         ["address", d.address, school.address],
@@ -469,6 +485,7 @@ export async function commitImport(opts: ImportCommitOptions): Promise<ImportCom
     const created = await db.school.create({
       data: {
         name: String(d.name),
+        placeId: typeof d.placeId === "string" && d.placeId ? d.placeId : null,
         governorate: gov,
         regionId,
         regionText: regionName,

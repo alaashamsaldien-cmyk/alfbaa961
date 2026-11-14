@@ -5,35 +5,31 @@
 // النتائج تُحدّث تلقائياً عند تغيير أي فلتر.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Table2, Map as MapIcon, Compass, FileSpreadsheet, Loader2, UserRoundPlus, ExternalLink } from "lucide-react";
+import { Table2, Map as MapIcon, Compass, FileSpreadsheet, UserRoundPlus, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import dynamic from "next/dynamic";
+import { GoogleSchoolsMap } from "./google-schools-map";
+import { GoogleSchoolsSearch } from "./google-schools-search";
+import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SchoolsFilters, EMPTY_FILTERS, type FiltersState } from "./schools-filters";
 import { SchoolsTable } from "./schools-table";
 import { SchoolEditDialog } from "./school-edit-dialog";
 import { AssignDialog } from "./assign-dialog";
 import { ExcelDialog } from "./excel-dialog";
-import { DiscoveryDialog } from "./discovery-dialog";
-import { CONTRACT_LABELS, AVAILABILITY_LABELS } from "@/lib/labels";
+import { CONTRACT_LABELS } from "@/lib/labels";
+import { formatFullDate } from "@/lib/time";
 import {
-  DISCOVERY_STATUS_BADGE,
-  DISCOVERY_STATUS_LABELS,
   SECTOR_LABELS_UI,
-  DATA_SOURCE_LABELS,
   type SchoolDTO,
   type SchoolsListResponse,
   type CoordinatorDTO,
 } from "@/lib/types";
 
-const BaseMap = dynamic(() => import("./base-map"), {
-  ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted-foreground">جارٍ تحميل الخريطة...</div>,
-});
-
 export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotification?: () => void }) {
   const { toast } = useToast();
+  const [googleOpen, setGoogleOpen] = useState(false);
   const [filters, setFilters] = useState<FiltersState>(EMPTY_FILTERS);
   const [data, setData] = useState<SchoolsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +43,6 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
   const [assignIds, setAssignIds] = useState<string[]>([]);
   const [assignNames, setAssignNames] = useState<string[]>([]);
   const [excelOpen, setExcelOpen] = useState(false);
-  const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [locateTarget, setLocateTarget] = useState<SchoolDTO | null>(null);
   const [coordinators, setCoordinators] = useState<CoordinatorDTO[]>([]);
@@ -68,6 +63,7 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
       sp.set("page", String(p));
       sp.set("pageSize", String(pageSize));
       if (view === "map") sp.set("onlyMap", "1");
+      sp.set("schoolCoverage", "1");
       return sp.toString();
     },
     [filters, view]
@@ -80,7 +76,7 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
         const res = await fetch(`/api/schools?${buildQuery(p)}&withOptions=1`, { cache: "no-store", signal });
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error ?? "تعذر جلب المدارس");
-        setData(j as SchoolsListResponse);
+        if (!signal?.aborted) setData(j as SchoolsListResponse);
       } catch (e) {
         if (!background && !signal?.aborted) toast({
           title: "تعذر جلب المدارس",
@@ -96,15 +92,15 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
 
   // تحديث تلقائي عند تغيير الفلاتر أو العرض
   useEffect(() => {
+    const controller = new AbortController();
     const t = setTimeout(() => {
       setPage(1);
-      load(1);
+      load(1, false, controller.signal);
     }, 250);
-    return () => clearTimeout(t);
-  }, [filters, view]);
+    return () => { clearTimeout(t); controller.abort(); };
+  }, [load]);
 
   useEffect(() => {
-    if (view === "map") return;
     const controller = new AbortController();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") load(page, true, controller.signal);
@@ -154,34 +150,19 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
     setAssignOpen(true);
   };
 
-  // ——— خريطة النظام ———
   const mapMarkers = useMemo(() => {
-    const schools = (data?.schools ?? []).filter((s) => s.hasCoords);
-    return schools.map((s) => {
-      const esc = (t: string | null | undefined) =>
-        (t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-      const popup = `
-        <div style="font-family:inherit;min-width:220px;direction:rtl;text-align:right">
-          <p style="margin:0 0 6px;font-weight:800;font-size:14px">${esc(s.name)}</p>
-          <p style="margin:0 0 3px;font-size:12px">النوع: ${esc(s.institutionType ?? "غير متوفرة")}${s.sector ? ` · ${esc(SECTOR_LABELS_UI[s.sector] ?? "")}` : ""}</p>
-          <p style="margin:0 0 3px;font-size:12px">المدير: ${esc(s.principalName ?? "غير متوفرة")}</p>
-          <p style="margin:0 0 3px;font-size:12px">الطلاب: ${s.studentCount !== null ? s.studentCount : "غير متوفرة"}</p>
-          <p style="margin:0 0 3px;font-size:12px" dir="ltr">هاتف: ${esc(s.phone ?? "غير متوفرة")}</p>
-          <p style="margin:0 0 3px;font-size:12px">التعاقد: ${esc(CONTRACT_LABELS[s.contractStatus] ?? s.contractStatus)} · الزيارة: ${s.lastVisitAt ? "تمت" : "لم تُزر"}</p>
-          <p style="margin:0 0 3px;font-size:12px">المنسقة: ${esc(s.coordinator?.name ?? "غير مخصصة")}</p>
-          <p style="margin:0 0 6px;font-size:11px;color:#64748b">التوثيق: ${esc(DISCOVERY_STATUS_LABELS[s.discoveryStatus] ?? s.discoveryStatus)}</p>
-          ${s.mapsUrl ? `<a href="${s.mapsUrl}" target="_blank" rel="noopener noreferrer" style="color:#0284c7;font-size:12px">فتح الموقع على Google Maps</a>` : ""}
-        </div>`;
-      return {
-        id: s.id,
-        lat: s.lat!,
-        lng: s.lng!,
-        color: s.contractStatus === "CONTRACTED" ? ("green" as const) : s.lastVisitAt ? ("amber" as const) : ("sky" as const),
-        title: s.name,
-        popupHtml: popup,
-      };
-    });
+    const schools = (data?.schools ?? []).filter((school) => school.hasCoords);
+    if (locateTarget?.hasCoords && !schools.some(({ id }) => id === locateTarget.id)) schools.push(locateTarget);
+    return schools.flatMap((school) => school.lat === null || school.lng === null ? [] : [{
+      id: school.id, lat: school.lat, lng: school.lng, name: school.name, visited: Boolean(school.lastVisitAt),
+    }]);
+  }, [data, locateTarget]);
+  const selectMapSchool = useCallback((id: string) => {
+    const school = data?.schools.find((item) => item.id === id);
+    if (school) setLocateTarget(school);
   }, [data]);
+  const focusedSchool = data?.schools.find((school) => school.id === locateTarget?.id) ?? locateTarget;
+  const mapCenter = SCHOOL_GOVERNORATES.find(({ name }) => name === filters.governorate)?.center ?? { lat: 33.3152, lng: 44.3661 };
 
   const exportQuery = useMemo(() => buildQuery(1), [buildQuery]);
 
@@ -198,7 +179,20 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={() => setDiscoveryOpen(true)} className="gap-2">
+          <Select value={filters.governorate} onValueChange={(governorate) => {
+            setSelectedIds(new Set());
+            setLocateTarget(null);
+            setFilters((current) => ({ ...current, governorate, regionId: "all" }));
+          }}>
+            <SelectTrigger className="w-auto gap-2" aria-label="المحافظة">
+              <MapIcon className="h-4 w-4" /><SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المحافظات</SelectItem>
+              {SCHOOL_GOVERNORATES.map(({ name }) => <SelectItem value={name} key={name}>{name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button type="button" onClick={() => setGoogleOpen((open) => !open)} className="gap-2" aria-expanded={googleOpen}>
             <Compass className="h-4 w-4" aria-hidden="true" />
             اكتشاف المدارس
           </Button>
@@ -206,28 +200,21 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
             <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
             Excel
           </Button>
-          {selectedIds.size > 0 && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="gap-2"
-              onClick={() =>
-                openAssign(
-                  Array.from(selectedIds),
-                  (data?.schools ?? []).filter((s) => selectedIds.has(s.id)).map((s) => s.name)
-                )
-              }
-            >
-              <UserRoundPlus className="h-4 w-4" aria-hidden="true" />
-              تخصيص المحدد ({selectedIds.size}) لمنسقة
-            </Button>
-          )}
         </div>
       </div>
 
-      <SchoolsFilters filters={filters} onChange={setFilters} options={data?.options ?? null} resultCount={data?.total ?? 0} />
+      {googleOpen && (
+        <GoogleSchoolsSearch key={filters.governorate} governorate={filters.governorate}
+          onAssign={(id, name) => openAssign([id], [name])} />
+      )}
+      <SchoolsFilters filters={filters} onChange={(next) => { setLocateTarget(null); setSelectedIds(new Set()); setFilters(next); }} options={data?.options ? { ...data.options, governorates: SCHOOL_GOVERNORATES.map(({ name }) => name) } : null} resultCount={data?.total ?? 0} />
 
-      <Tabs value={view} onValueChange={(v) => setView(v as "table" | "map")}>
+      <Button type="button" variant="outline" disabled={!selectedIds.size}
+        onClick={() => openAssign([...selectedIds], (data?.schools ?? []).filter(({ id }) => selectedIds.has(id)).map(({ name }) => name))}>
+        <UserRoundPlus className="h-4 w-4" />تنسيب المدارس المحددة{selectedIds.size ? ` (${selectedIds.size})` : ""}
+      </Button>
+
+      <Tabs value={view} onValueChange={(v) => { setLocateTarget(null); setView(v as "table" | "map"); }}>
         <TabsList>
           <TabsTrigger value="table" className="gap-1.5"><Table2 className="h-4 w-4" />الجدول</TabsTrigger>
           <TabsTrigger value="map" className="gap-1.5"><MapIcon className="h-4 w-4" />خريطة النظام</TabsTrigger>
@@ -266,36 +253,40 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
           )}
         </>
       ) : (
-        <div className="relative h-[560px] overflow-hidden rounded-xl border bg-white">
-          {mapMarkers.length === 0 && !loading && (
-            <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center bg-white/95 p-6 text-center">
-              <Search className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
-              <p className="mt-3 text-sm font-bold">لا توجد مدارس بإحداثيات محفوظة</p>
-              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                كل مدرسة معتمدة يجب أن يكون لها موقع جغرافي. استخدم اكتشاف المدارس لتسجيل مواقع حقيقية.
-              </p>
-            </div>
+        <div className="space-y-2">
+          {data?.mappedTotal !== undefined && (
+            <p className="text-xs text-muted-foreground">
+              {Math.min(data.mappedTotal, data.schools.length)} من {data.total} مدرسة تظهر على الخريطة
+              {data.mappedTotal < data.total ? ` · بلا إحداثيات: ${data.total - data.mappedTotal}` : ""}
+              {data.mappedTotal > data.schools.length ? " · ضيّق الفلاتر لعرض بقية المواقع" : ""}
+            </p>
           )}
-          <BaseMap
-            center={{ lat: locateTarget?.lat ?? 33.3152, lng: locateTarget?.lng ?? 44.3661 }}
-            zoom={locateTarget ? 15 : 12}
-            markers={mapMarkers}
-            fitBounds={locateTarget ? null : null}
-          />
-          {locateTarget && (
-            <div className="absolute bottom-3 start-3 z-[1000] rounded-lg border bg-white px-3 py-2 shadow-md">
-              <p className="text-xs font-bold">{locateTarget.name}</p>
-              <p className="text-[11px] text-muted-foreground">مركز الخريطة على هذه المدرسة</p>
-              <Button type="button" size="sm" variant="ghost" className="mt-1 h-7 text-xs" onClick={() => setLocateTarget(null)}>
-                إلغاء التركيز
-              </Button>
-            </div>
-          )}
-          <div className="absolute top-3 start-3 z-[1000] flex flex-wrap gap-1.5 rounded-lg border bg-white/95 px-3 py-2 shadow-md text-[11px]">
-            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" />غير متعاقدة</span>
-            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" />تمت زيارتها</span>
-            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-green-600" />متعاقدة</span>
+          <div className="flex gap-3 text-xs">
+            <span className="text-sky-700">● لم تُزر</span>
+            <span className="text-green-700">● تمت زيارتها</span>
           </div>
+          <GoogleSchoolsMap center={mapCenter} markers={mapMarkers} selected={locateTarget?.id} onSelect={selectMapSchool} />
+          {!mapMarkers.length && !loading && <p className="text-sm text-muted-foreground">لا توجد مدارس مطابقة بإحداثيات محفوظة.</p>}
+          {focusedSchool && (
+            <div className="space-y-2 rounded-xl border bg-card p-3 text-sm">
+              <p className="font-bold">{focusedSchool.name}</p>
+              <p>{focusedSchool.address ?? focusedSchool.regionName ?? focusedSchool.governorate}</p>
+              <p>{[focusedSchool.institutionType, focusedSchool.sector && SECTOR_LABELS_UI[focusedSchool.sector],
+                CONTRACT_LABELS[focusedSchool.contractStatus]].filter(Boolean).join(" · ")}</p>
+              {focusedSchool.principalName && <p>المدير · {focusedSchool.principalName}</p>}
+              {focusedSchool.phone && <p dir="ltr" className="w-fit">{focusedSchool.phone}</p>}
+              {focusedSchool.studentCount !== null && <p>الطلاب · {focusedSchool.studentCount}</p>}
+              {focusedSchool.coordinator && <p>المنسّق المخصّص · {focusedSchool.coordinator.name}</p>}
+              {focusedSchool.lastVisitAt && <p>آخر زيارة · {formatFullDate(focusedSchool.lastVisitAt)} {focusedSchool.lastVisitorName}</p>}
+              <div className="flex flex-wrap gap-2">
+                {focusedSchool.mapsUrl && <Button asChild variant="outline" size="sm">
+                  <a href={focusedSchool.mapsUrl} target="_blank" rel="noreferrer"><ExternalLink />معاينة في Google Maps</a>
+                </Button>}
+                <Button variant="outline" size="sm" onClick={() => openAssign([focusedSchool.id], [focusedSchool.name])}>تنسيب</Button>
+                <Button variant="ghost" size="sm" onClick={() => setLocateTarget(null)}>إلغاء التركيز</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -328,13 +319,6 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
         onImported={refresh}
       />
 
-      <DiscoveryDialog
-        open={discoveryOpen}
-        onOpenChange={setDiscoveryOpen}
-        governorates={data?.options?.governorates ?? []}
-        regions={data?.options?.regions ?? []}
-        onSaved={refresh}
-      />
     </div>
   );
 }

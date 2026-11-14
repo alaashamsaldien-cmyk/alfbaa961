@@ -99,7 +99,7 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
                 <TableCell className="max-w-[240px]">
                   <p className="truncate font-semibold text-foreground" title={s.name}>{s.name}</p>
                   <p className="truncate text-[11px] text-muted-foreground" title={s.address ?? ""}>
-                    {s.governorate ?? "—"}
+                    {s.address ?? s.governorate ?? "—"}
                     {s.dataSource ? ` · ${DATA_SOURCE_LABELS[s.dataSource] ?? s.dataSource}` : ""}
                   </p>
                 </TableCell>

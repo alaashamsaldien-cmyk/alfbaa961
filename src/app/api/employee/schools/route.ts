@@ -29,7 +29,12 @@ export async function GET(request: NextRequest) {
     }
 
     const sp = request.nextUrl.searchParams;
+    const mapView = sp.get("onlyMap") === "1";
+    if (mapView && !schoolsView) {
+      return NextResponse.json({ error: "لا تملك صلاحية عرض خريطة المدارس." }, { status: 403 });
+    }
     const q = sp.get("q")?.trim();
+    const visitStatus = sp.get("visitStatus");
     const limit = Math.min(500, Math.max(1, Number(sp.get("limit") ?? 200) || 200));
     const scope = await getFieldSchoolScope(principal);
 
@@ -43,23 +48,31 @@ export async function GET(request: NextRequest) {
       ];
     }
 
-    const schools = await db.school.findMany({
-      where: where as never,
-      orderBy: { name: "asc" },
-      take: limit,
-      select: {
-        id: true, name: true, governorate: true, regionText: true,
-        region: { select: { name: true } },
-        institutionType: true, stage: true, principalName: true, phone: true,
-        address: true, lat: true, lng: true, studentCount: true,
-        availabilityStatus: true, contractStatus: true, lastVisitAt: true,
-        discoveryStatus: true, dataQuality: true,
-      },
-    });
+    if (visitStatus === "VISITED") where.lastVisitAt = { not: null };
+    if (visitStatus === "NOT_VISITED") where.lastVisitAt = null;
+    const mapWhere = { ...where, lat: { not: null }, lng: { not: null } };
+    const [schools, mappedTotal, total] = await Promise.all([
+      db.school.findMany({
+        where: (mapView ? mapWhere : where) as never,
+        orderBy: { name: "asc" },
+        take: limit,
+        select: {
+          id: true, name: true, governorate: true, regionText: true,
+          region: { select: { name: true } },
+          institutionType: true, stage: true, principalName: true, phone: true,
+          address: true, lat: true, lng: true, studentCount: true,
+          availabilityStatus: true, contractStatus: true, lastVisitAt: true,
+          discoveryStatus: true, dataQuality: true,
+        },
+      }),
+      mapView ? db.school.count({ where: mapWhere as never }) : undefined,
+      mapView ? db.school.count({ where: where as never }) : undefined,
+    ]);
 
     return NextResponse.json({
       scope,
-      total: schools.length,
+      total: total ?? schools.length,
+      mappedTotal,
       schools: schools.map((s) => ({
         ...s,
         regionName: s.region?.name ?? s.regionText ?? null,

@@ -29,6 +29,7 @@ interface BaseMapProps {
   zoom?: number;
   markers?: MapMarker[];
   circle?: MapCircle | null;
+  fitMarkers?: boolean;
   fitBounds?: { west: number; south: number; east: number; north: number } | null;
   onBoundsChange?: (bounds: { west: number; south: number; east: number; north: number }) => void;
   onCenterDrag?: (center: { lat: number; lng: number }) => void;
@@ -61,6 +62,7 @@ export default function BaseMap({
   zoom = 13,
   markers = [],
   circle = null,
+  fitMarkers = false,
   fitBounds = null,
   onBoundsChange,
   onCenterDrag,
@@ -111,9 +113,11 @@ export default function BaseMap({
     mapRef.current = map;
     emitBounds();
     // إعادة القياس بعد أول إطار — ضروري داخل الحاويات المرنة
-    setTimeout(() => map.invalidateSize(), 150);
+    const resize = new ResizeObserver(() => map.invalidateSize());
+    resize.observe(containerRef.current);
 
     return () => {
+      resize.disconnect();
       map.remove();
       mapRef.current = null;
       markersLayerRef.current = null;
@@ -165,6 +169,24 @@ export default function BaseMap({
     }
   }, [circle]);
 
+  // مركز الخريطة الخارجي (يتحرك فقط عند تغيّر قيمة المركز المحكومة)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const c = map.getCenter();
+    if (Math.abs(c.lat - center.lat) > 0.0001 || Math.abs(c.lng - center.lng) > 0.0001 || map.getZoom() !== zoom) {
+      map.setView([center.lat, center.lng], zoom);
+    }
+  }, [center.lat, center.lng, zoom]);
+
+  const positions = fitMarkers ? markers.map(({ lat, lng }) => [lat, lng].join(",")).join(";") : "";
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !positions) return;
+    const points = positions.split(";").map((point) => point.split(",").map(Number) as [number, number]);
+    map.fitBounds(L.latLngBounds(points), { padding: [24, 24], maxZoom: 15 });
+  }, [positions]);
+
   // ملاءمة الإطار
   useEffect(() => {
     const map = mapRef.current;
@@ -172,16 +194,6 @@ export default function BaseMap({
     const b = L.latLngBounds([fitBounds.south, fitBounds.west], [fitBounds.north, fitBounds.east]);
     map.fitBounds(b, { padding: [24, 24] });
   }, [fitBounds]);
-
-  // مركز الخريطة الخارجي (يتحرك فقط عند تغيّر قيمة المركز المحكومة)
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const c = map.getCenter();
-    if (Math.abs(c.lat - center.lat) > 0.0001 || Math.abs(c.lng - center.lng) > 0.0001) {
-      map.setView([center.lat, center.lng], map.getZoom());
-    }
-  }, [center]);
 
   return (
     <div

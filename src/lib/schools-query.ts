@@ -1,6 +1,7 @@
 // ——— طبقة استعلام المدارس المشتركة — فلاتر شاملة تُستخدم في القائمة والتصدير ———
 import { db } from "@/lib/db";
 import { isInsideIraq } from "@/lib/geo/iraq";
+import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
 import { computeDataQuality } from "@/lib/geo/normalize";
 
 export interface SchoolFilters {
@@ -22,6 +23,7 @@ export interface SchoolFilters {
   pageSize?: number;
   sort?: "name" | "createdAt" | "dataQuality";
   onlyMap?: boolean;
+  schoolCoverage?: boolean;
 }
 
 export function parseSchoolFilters(sp: URLSearchParams): SchoolFilters {
@@ -51,6 +53,7 @@ export function parseSchoolFilters(sp: URLSearchParams): SchoolFilters {
     pageSize: Math.min(200, Math.max(5, Number(sp.get("pageSize") ?? 25) || 25)),
     sort,
     onlyMap: sp.get("onlyMap") === "1",
+    schoolCoverage: sp.get("schoolCoverage") === "1",
   };
 }
 
@@ -68,6 +71,7 @@ export function schoolWhere(filters: SchoolFilters): Record<string, unknown> {
       ],
     });
   }
+  if (filters.schoolCoverage) and.push({ governorate: { in: SCHOOL_GOVERNORATES.map(({ name }) => name) } });
   if (filters.governorate) and.push({ governorate: filters.governorate });
   if (filters.regionId) and.push({ regionId: filters.regionId });
   if (filters.institutionType) and.push({ institutionType: filters.institutionType });
@@ -229,10 +233,12 @@ export function mapSchool(s: SchoolRow) {
 
 export async function listSchools(filters: SchoolFilters) {
   const where = schoolWhere(filters);
-  const [total, schools] = await Promise.all([
+  const mapWhere = { AND: [where, { lat: { not: null }, lng: { not: null } }] };
+  const dataWhere = filters.onlyMap ? mapWhere : where;
+  const [total, schools, mappedTotal] = await Promise.all([
     db.school.count({ where: where as never }),
     db.school.findMany({
-      where: where as never,
+      where: dataWhere as never,
       include: {
         region: true,
         coordinator: { select: { id: true, name: true } },
@@ -253,8 +259,9 @@ export async function listSchools(filters: SchoolFilters) {
       skip: filters.onlyMap ? 0 : (filters.page! - 1) * filters.pageSize!,
       take: filters.onlyMap ? 2000 : filters.pageSize,
     }),
+    filters.onlyMap ? db.school.count({ where: mapWhere as never }) : undefined,
   ]);
-  return { total, schools: schools.map(({ schoolVisits, activities, ...school }) => {
+  return { total, mappedTotal, schools: schools.map(({ schoolVisits, activities, ...school }) => {
     const visit = schoolVisits[0];
     const activity = activities[0];
     const visitIsLatest = visit && (!activity || visit.createdAt >= activity.occurredAt);

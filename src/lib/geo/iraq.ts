@@ -9,13 +9,14 @@ export interface GovernorateInfo {
   center: { lat: number; lng: number };
 }
 
-/** محافظات العراق الثمان عشرة — قائمة رسمية ثابتة */
+/** محافظات العراق ومراكزها المرجعية */
 export const IRAQ_GOVERNORATES: GovernorateInfo[] = [
   { name: "بغداد", center: { lat: 33.3152, lng: 44.3661 } },
   { name: "البصرة", center: { lat: 30.5085, lng: 47.7804 } },
   { name: "نينوى", center: { lat: 36.335, lng: 43.1189 } },
   { name: "أربيل", center: { lat: 36.1911, lng: 44.0092 } },
   { name: "السليمانية", center: { lat: 35.5611, lng: 45.4336 } },
+  { name: "حلبجة", center: { lat: 35.1778, lng: 45.9861 } },
   { name: "دهوك", center: { lat: 36.8669, lng: 42.9501 } },
   { name: "كركوك", center: { lat: 35.4681, lng: 44.3922 } },
   { name: "النجف", center: { lat: 32.026, lng: 44.3465 } },

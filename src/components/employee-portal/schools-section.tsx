@@ -9,6 +9,8 @@ import {
   ChevronLeft,
   Loader2,
   MapPin,
+  Map as MapIcon,
+  List,
   Phone,
   Plus,
   Search,
@@ -20,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { SectionPerms } from "@/lib/sections-catalog";
 import { formatFullDate, formatNumber } from "@/lib/time";
@@ -58,6 +62,10 @@ interface SchoolsSectionProps {
 export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, defaultAddOpen, title }: SchoolsSectionProps) {
   const { toast } = useToast();
   const [schools, setSchools] = useState<SchoolRow[]>([]);
+  const [view, setView] = useState("list");
+  const [visitStatus, setVisitStatus] = useState("all");
+  const [mapCounts, setMapCounts] = useState<{ total: number; mapped: number } | null>(null);
+  const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [searchQ, setSearchQ] = useState("");
@@ -68,23 +76,38 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (query: string) => {
+  const load = useCallback(async (query: string, signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: "300" });
+      const params = new URLSearchParams({ limit: view === "map" ? "500" : "300" });
+      if (view === "map") params.set("onlyMap", "1");
+      if (visitStatus !== "all") params.set("visitStatus", visitStatus);
       if (query.trim()) params.set("q", query.trim());
-      const res = await fetch(`/api/employee/schools?${params.toString()}`, { cache: "no-store" });
+      const res = await fetch(`/api/employee/schools?${params.toString()}`, { cache: "no-store", signal });
       const j = await res.json();
-      if (res.ok) setSchools(j.schools ?? []);
-      else toast({ title: "تعذر جلب المدارس", description: j?.error, variant: "destructive" });
+      if (!res.ok) throw new Error(j?.error ?? "تعذر جلب قائمة المدارس");
+      if (signal?.aborted) return;
+      setSchools(j.schools ?? []);
+      setMapCounts(j.mappedTotal === undefined ? null : { total: j.total, mapped: j.mappedTotal });
+    } catch (error) {
+      if (signal?.aborted) return;
+      setSchools([]);
+      setMapCounts(null);
+      toast({ title: "تعذر جلب المدارس", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [toast]);
+  }, [toast, view, visitStatus]);
 
   useEffect(() => {
-    load(searchQ);
+    const controller = new AbortController();
+    load(searchQ, controller.signal);
+    return () => controller.abort();
   }, [searchQ, load]);
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   const onSearchInput = (value: string) => {
     setQ(value);
@@ -143,6 +166,18 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
     }
   };
 
+  const markers = useMemo<MapMarker[]>(() => schools.flatMap((school) => {
+    if (!school.hasCoords || school.lat === null || school.lng === null) return [];
+    return [{
+      id: school.id,
+      lat: school.lat,
+      lng: school.lng,
+      color: school.lastVisitAt ? "green" : "sky",
+      title: school.name,
+      onClick: () => setSelectedMarker(school.id),
+    }];
+  }), [schools]);
+  const focusedSchool = schools.find((school) => school.id === selectedMarker);
   const addSchoolDisabled = !canCreate;
 
   return (
@@ -174,9 +209,59 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
         />
       </div>
 
+      {perms.schools?.view && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Tabs value={view} onValueChange={(value) => { setSelectedMarker(null); setView(value); }}>
+            <TabsList>
+              <TabsTrigger value="list" className="gap-1"><List className="h-4 w-4" />القائمة</TabsTrigger>
+              <TabsTrigger value="map" className="gap-1"><MapIcon className="h-4 w-4" />الخريطة</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Select value={visitStatus} onValueChange={(value) => { setSelectedMarker(null); setVisitStatus(value); }}>
+            <SelectTrigger className="w-auto" aria-label="حالة الزيارة"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المدارس</SelectItem>
+              <SelectItem value="VISITED">تمت زيارتها</SelectItem>
+              <SelectItem value="NOT_VISITED">لم تُزر</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center rounded-xl border bg-white p-6 text-muted-foreground">
           <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" /> جارٍ التحميل...
+        </div>
+      ) : view === "map" ? (
+        <div className="space-y-2">
+          {mapCounts && (
+            <p className="text-xs text-muted-foreground">
+              {markers.length} من {mapCounts.total} مدرسة تظهر على الخريطة
+              {mapCounts.mapped < mapCounts.total ? ` · بلا إحداثيات: ${mapCounts.total - mapCounts.mapped}` : ""}
+              {mapCounts.mapped > markers.length ? " · ضيّق البحث لعرض بقية المواقع" : ""}
+            </p>
+          )}
+          {markers.length ? (
+            <>
+              <div className="flex gap-3 text-xs">
+                <span className="text-green-700">● تمت زيارتها</span>
+                <span className="text-sky-700">● لم تُزر</span>
+              </div>
+              <div className="relative isolate h-[min(55dvh,420px)] min-h-64 overflow-hidden rounded-xl border">
+                <BaseMap center={{ lat: 33.3152, lng: 44.3661 }} markers={markers} fitMarkers ariaLabel="خريطة مدارس نطاق العمل" />
+              </div>
+              {focusedSchool && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3">
+                  <div>
+                    <p className="text-sm font-bold">{focusedSchool.name}</p>
+                    <p className="text-xs text-muted-foreground">{focusedSchool.address ?? focusedSchool.regionName}</p>
+                    <p className="text-xs">{focusedSchool.lastVisitAt ? `آخر زيارة: ${formatFullDate(focusedSchool.lastVisitAt)}` : "لم تُزر"}</p>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" onClick={() => openDetail(focusedSchool.id)}>تفاصيل المدرسة</Button>
+                </div>
+              )}
+            </>
+          ) : <p className="rounded-xl border p-4 text-center text-sm">لا مدارس مطابقة بإحداثيات محفوظة.</p>}
         </div>
       ) : schools.length === 0 ? (
         <div className="rounded-xl border bg-white p-8 text-center">

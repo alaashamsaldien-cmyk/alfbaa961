@@ -15,8 +15,10 @@ import {
   institutionTypeFromOsm,
   sectorFromOsmTags,
   inferStageFromName,
+  normalizeArabic,
   type InstitutionTypeKey,
 } from "./normalize";
+import { matchesSchoolGovernorate } from "./school-governorates";
 
 export type DiscoveryProvider = "OSM" | "GOOGLE_PLACES" | "OVERPASS";
 
@@ -434,12 +436,13 @@ export function googlePlacesEnabled(): boolean {
 }
 
 const GOOGLE_FIELDS_MASK =
-  "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri";
+  "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.addressComponents,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri";
 
 function mapGooglePlace(p: {
   id?: string;
   displayName?: { text?: string };
   formattedAddress?: string;
+  addressComponents?: { longText?: string; shortText?: string; types?: string[] }[];
   location?: { latitude?: number; longitude?: number };
   types?: string[];
   nationalPhoneNumber?: string;
@@ -452,7 +455,11 @@ function mapGooglePlace(p: {
   const name = (p.displayName?.text ?? "").trim();
   if (!name) return null;
   const eduTypes = (p.types ?? []).filter((t) => (GOOGLE_EDU_TYPES as readonly string[]).includes(t));
-  const type = institutionTypeFromGoogle(eduTypes.length ? eduTypes : p.types);
+  const recognizedType = institutionTypeFromGoogle(eduTypes.length ? eduTypes : p.types);
+  const nameForType = normalizeArabic(name);
+  const isInstitute = (p.types ?? []).some((value) => ["school", "educational_institution", "research_institute"].includes(value))
+    && /(?:^|\s)(?:معهد|المعهد|institute)(?:\s|$)/i.test(nameForType);
+  const type = isInstitute && recognizedType !== "UNIVERSITY" ? "COLLEGE_INSTITUTE" : recognizedType;
   const stage = inferStageFromName(name);
   const phone = p.nationalPhoneNumber ?? p.internationalPhoneNumber ?? undefined;
   return {
@@ -472,10 +479,10 @@ function mapGooglePlace(p: {
   };
 }
 
-async function googlePost(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function googlePost(body: Record<string, unknown>, method: "searchNearby" | "searchText" = "searchNearby"): Promise<Record<string, unknown>> {
   const key = googleApiKey();
   if (!key) throw new DiscoveryError("NO_KEY", "مفتاح Google Maps API غير مهيأ في متغيرات البيئة (GOOGLE_MAPS_API_KEY).");
-  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+  const res = await fetch(`https://places.googleapis.com/v1/places:${method}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -527,26 +534,31 @@ async function searchGoogle(req: DiscoverySearchRequest): Promise<DiscoverySearc
     }
     if ((places.length ?? 0) >= 20) warnings.push("بحث Google للمنطقة القريبة يعيد 20 نتيجة كحد أقصى لكل طلب — قسّم النطاق لدوائر أصغر لمزيد من النتائج.");
   } else {
-    // بحث نصي ضمن مستطيل المحافظة/المنطقة (locationBias وليس قيداً صارماً — نصف النتائج فقط يبقى ضمن الإطار، يُرشَّح لاحقاً)
     const b = req.bounds;
-    if (!b) throw new DiscoveryError("BAD_REQUEST", "حدود النطاق مطلوبة للبحث النصي.");
     const text = req.keyword ? req.keyword : "مدرسة";
     const json = await googlePost({
       textQuery: text,
-      includedTypes,
-      maxResultCount: 20,
-      locationBias: {
+      pageSize: 20,
+      languageCode: "ar",
+      regionCode: "IQ",
+      ...(b ? { locationRestriction: {
         rectangle: { low: { latitude: b.south, longitude: b.west }, high: { latitude: b.north, longitude: b.east } },
-      },
-    });
-    for (const p of (json["places"] as unknown[]) ?? []) {
-      const mapped = mapGooglePlace(p as Parameters<typeof mapGooglePlace>[0]);
-      if (mapped && mapped.lat >= b.south && mapped.lat <= b.north && mapped.lng >= b.west && mapped.lng <= b.east) {
-        places.push(mapped);
+      } } : {}),
+    }, "searchText");
+    for (const p of (json["places"] as Parameters<typeof mapGooglePlace>[0][]) ?? []) {
+      const mapped = mapGooglePlace(p);
+      if (!mapped || !types.includes(mapped.institutionType)) continue;
+      if (req.governorate) {
+        const address = p.addressComponents ?? [];
+        if (!address.some((part) => part.types?.includes("country") && part.shortText === "IQ")) continue;
+        if (!address.some((part) => part.types?.includes("administrative_area_level_1")
+          && matchesSchoolGovernorate(part.longText ?? "", req.governorate!))) continue;
+        mapped.governorate = req.governorate;
       }
+      places.push(mapped);
       if (req.maxResults && places.length >= req.maxResults) break;
     }
-    warnings.push("البحث النصي في Google يُرتّب النتائج حسب الصلة ولا يجلب كل مؤسسات النطاق — استخدم النطاق الجغرافي (دائرة) لمغطى أدق.");
+    warnings.push("تعرض Google النتائج الأقرب للبحث. استخدم اسم المدرسة أو عنوانًا أدق لتضييق النتائج.");
   }
 
   return { places: dedupById(places), meta: { provider: "GOOGLE_PLACES", requestsMade: 1, truncated: false, warnings } };

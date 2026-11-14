@@ -72,6 +72,7 @@ export interface CoordinatorDTO {
 
 export interface SchoolsListResponse {
   total: number;
+  mappedTotal?: number;
   schools: SchoolDTO[];
   options?: {
     governorates: string[];
