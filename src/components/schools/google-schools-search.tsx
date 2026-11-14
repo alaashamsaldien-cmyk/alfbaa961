@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GoogleSchoolCount } from "./google-school-count";
 import { GoogleSchoolsMap } from "./google-schools-map";
 import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
 import type { DiscoveredPlace } from "@/lib/geo/providers";
@@ -91,6 +92,7 @@ export function GoogleSchoolsSearch({ governorate, onAssign }: {
   if (!region) return <p className="rounded-xl border p-4 text-sm">اختر محافظة من أعلى الصفحة للبحث في Google Maps.</p>;
   return (
     <div className="space-y-3 rounded-xl border bg-card p-4">
+      <GoogleSchoolCount governorate={governorate} />
       <form onSubmit={search} className="flex flex-wrap gap-2">
         <Input value={q} onChange={(e) => setQuery(e.target.value)} maxLength={120} className="min-w-44 flex-1" placeholder={`اسم ${department} أو العنوان`} aria-label="الاسم أو العنوان" />
         <Select value={type} onValueChange={setType}>
