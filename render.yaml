@@ -14,7 +14,7 @@ services:
     # 3) بناء التطبيق وتجميع الملفات الثابتة ومحرك Prisma في الحزمة المستقلة
     # ملاحظة: نقل البيانات إلى Neon يتم من عدة نقل آمنة منفصلة (انظر DEPLOYMENT.md)
     # قبل أول نشر أو بعده — لا توجد أي بيانات داخل هذا المستودع إطلاقاً.
-    buildCommand: npx prisma generate --schema=prisma/schema.postgres.prisma && npx prisma db push --schema=prisma/schema.postgres.prisma --accept-data-loss && npx next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && cp node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node .next/standalone/node_modules/.prisma/client/
+    buildCommand: npx prisma generate --schema=prisma/schema.postgres.prisma && npx prisma db push --schema=prisma/schema.postgres.prisma && npx next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && cp node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node .next/standalone/node_modules/.prisma/client/
     startCommand: NODE_ENV=production node .next/standalone/server.js
     healthCheckPath: /api/session
     autoDeploy: true        # كل push إلى الفرع الرئيسي يعيد النشر تلقائياً

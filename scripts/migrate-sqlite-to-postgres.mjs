@@ -56,14 +56,15 @@ if (!SQLITE_SOURCE_ENV) {
   console.error("ضبط SQLITE_SOURCE لمسار نسخة البيانات أولاً (مثال: ./alifba-trial-snapshot.db من عدة النقل).");
   process.exit(1);
 }
-const SQLITE_SOURCE = SQLITE_SOURCE_ENV.startsWith("file:") ? SQLITE_SOURCE_ENV : "file:" + SQLITE_SOURCE_ENV;
-
 // حارس 1: بصمة SHA-256 للنسخة المصدر — تُحسب وتُطبع دائماً، وتُطابق EXPECT_SHA256 إن وُجد
-const SQLITE_FILE = SQLITE_SOURCE.slice(5);
+// تحويل المسار إلى مطلق إلزامي: Prisma يفسر المسارات النسبية نسبةً لموقع المخطط لا مجلد التشغيل
+const SQLITE_FILE_RAW = SQLITE_SOURCE_ENV.startsWith("file:") ? SQLITE_SOURCE_ENV.slice(5) : SQLITE_SOURCE_ENV;
+const SQLITE_FILE = path.isAbsolute(SQLITE_FILE_RAW) ? SQLITE_FILE_RAW : path.resolve(SQLITE_FILE_RAW);
 if (!existsSync(SQLITE_FILE)) {
   console.error(`ملف النسخة المصدر غير موجود: ${SQLITE_FILE}`);
   process.exit(1);
 }
+const SQLITE_SOURCE = "file:" + SQLITE_FILE;
 const SOURCE_SHA256 = createHash("sha256").update(readFileSync(SQLITE_FILE)).digest("hex");
 console.log(`بصمة ملف النسخة المصدر SHA-256: ${SOURCE_SHA256}`);
 if (process.env.EXPECT_SHA256) {
@@ -89,18 +90,23 @@ async function main() {
   console.log("=== خطة الانتقال SQLite → Postgres (وضع آمن) ===");
   console.log(`القراءة من: SQLite (${SQLITE_SOURCE}) — للقراءة فقط، لن يتغير ملفها`);
 
-  // وضع الاستيراد الآلي على Render: إن كانت القاعدة الهدف تحتوي بيانات مسبقاً فتخطّ بأمان
-  // (يمنع محو البيانات المكتوبة خلال شهر التجربة عند إعادة النشر)
+  // وضع الاستيراد الآلي: إن كانت القاعدة الهدف تحتوي بيانات مسبقاً في أي جدول فتخطّ بأمان
+  // (يمنع محو البيانات المكتوبة خلال شهر التجربة عند إعادة التشغيل)
+  // الفحص يشمل كل الجداول الـ15 وليس جدولاً واحداً — وجود أي سجل يوقف الاستيراد فوراً
   if (process.argv.includes("--if-empty")) {
     try {
-      const existing = await pg.school.count();
-      if (existing > 0) {
-        console.log(`القاعدة الهدف تحتوي ${existing} مدرسة — توجد بيانات مسبقاً، تخطي الاستيراد (وضع --if-empty).`);
+      let occupied = null;
+      for (const t of TABLES) {
+        const c = await pg[t].count();
+        if (c > 0) { occupied = { table: t, count: c }; break; }
+      }
+      if (occupied) {
+        console.log(`القاعدة الهدف ليست فارغة (الجدول ${occupied.table}: ${occupied.count} سجلاً) — تخطي الاستيراد (وضع --if-empty).`);
         await sqlite.$disconnect();
         await pg.$disconnect();
         return;
       }
-    } catch { /* الجداول غير موجودة بعد — تابع (db push يسبق هذه الخطوة على Render) */ }
+    } catch { /* الجداول غير موجودة بعد — تابع (db push يسبق هذه الخطوة) */ }
   }
 
   // حارس 2: --require-empty — لا كتابة ولا حذف إطلاقاً إن كانت القاعدة الهدف تحتوي أي بيانات
