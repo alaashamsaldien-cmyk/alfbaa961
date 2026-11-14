@@ -1,0 +1,327 @@
+// نسخة المخطط لقاعدة Postgres — جاهزة للنشر على Neon عند الموافقة فقط
+// جميع الجداول والحقول والفهارس مطابقة تماماً لـ schema.prisma الحالي — يتغير سطر provider فقط.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// عميل Postgres ثابت بمسار مستقل — تستخدمه سكربتات الترحيل والمراقبة والتصدير
+// بغض النظر عن حالة العميل الافتراضي (SQLite للتطوير المحلي أو Postgres للنشر)
+generator pgClient {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma-pg/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      String   @default("ADMIN") // ADMIN مدير النظام | MANAGER مدير إداري (موظف) | STAFF موظف
+  isActive  Boolean  @default(true)
+  username  String?  @unique
+  passwordHash String?
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  phone       String?
+  jobTitle    String?
+  governorate String?
+  regionId    String?
+  posts          Post[]
+  activities     Activity[]
+  followUps      FollowUp[]
+  notifications  Notification[]
+  importLogs     ImportLog[]
+  discoverySessions DiscoverySession[]
+  authSessions  AuthSession[]
+  workRegion     Region?          @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  permissions    EmployeePermission[]
+  schoolVisits   SchoolVisit[]
+}
+
+model EmployeePermission {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section    String
+  visible    Boolean  @default(false)
+  canView    Boolean  @default(false)
+  canCreate  Boolean  @default(false)
+  canEdit    Boolean  @default(false)
+  canDelete  Boolean  @default(false)
+  canExport  Boolean  @default(false)
+  canApprove Boolean  @default(false)
+  canManage  Boolean  @default(false)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, section])
+  @@index([userId])
+}
+
+model PermissionTemplate {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  sectionsJson String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  author    User?    @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Region {
+  id          String   @id @default(cuid())
+  name        String
+  governorate String   @default("بغداد")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  schools     School[]
+  employees   User[]
+
+  @@unique([name, governorate])
+}
+
+model Coordinator {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  username     String?  @unique
+  passwordHash String?
+  lastLoginAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  schools   School[]
+  activities Activity[]
+  followUps  FollowUp[]
+  authSessions AuthSession[]
+}
+
+model AuthSession {
+  id            String   @id @default(cuid())
+  token         String   @unique
+  principalType String
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coordinatorId String?
+  coordinator   Coordinator?  @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model School {
+  id                 String   @id @default(cuid())
+  name               String
+  governorate        String?
+  regionId           String?
+  region             Region?  @relation(fields: [regionId], references: [id])
+  institutionType    String?
+  stage              String?
+  principalName      String?
+  phone              String?
+  address            String?
+  locationUrl        String?
+  availabilityStatus String   @default("AVAILABLE")
+  contractStatus     String   @default("NOT_CONTRACTED")
+  platformName       String?
+  coordinatorId      String?
+  coordinator        Coordinator? @relation(fields: [coordinatorId], references: [id])
+  lastVisitAt        DateTime?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  activities         Activity[]
+  followUps          FollowUp[]
+  schoolVisits       SchoolVisit[]
+
+  lat                Float?
+  lng                Float?
+  placeId            String?  @unique
+  osmType            String?
+  osmId              BigInt?
+  dataSource         String?
+  sector             String?
+  studentCount       Int?
+  stages             String?
+  website            String?
+  facebookUrl        String?
+  instagramUrl       String?
+  otherLinks         String?
+  regionText         String?
+  discoveryStatus    String   @default("DISCOVERED")
+  fieldMeta          String?
+  dataQuality        Int      @default(0)
+  discoveredAt       DateTime?
+  discoverySessionId String?
+
+  @@unique([osmType, osmId])
+  @@index([regionId])
+  @@index([coordinatorId])
+  @@index([contractStatus])
+  @@index([availabilityStatus])
+  @@index([governorate])
+  @@index([discoveryStatus])
+  @@index([dataSource])
+}
+
+model Activity {
+  id            String   @id @default(cuid())
+  type          String
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id])
+  coordinatorId String?
+  coordinator   Coordinator? @relation(fields: [coordinatorId], references: [id])
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  occurredAt    DateTime @default(now())
+  result        String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([type, occurredAt])
+  @@index([occurredAt])
+}
+
+model FollowUp {
+  id            String    @id @default(cuid())
+  title         String?
+  type          String    @default("REVIEW")
+  schoolId      String
+  school        School    @relation(fields: [schoolId], references: [id])
+  coordinatorId String?
+  coordinator   Coordinator? @relation(fields: [coordinatorId], references: [id])
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  dueDate       DateTime
+  status        String    @default("PENDING")
+  completedAt   DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, dueDate])
+  @@index([type, dueDate])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([isRead])
+}
+
+model DiscoverySession {
+  id             String   @id @default(cuid())
+  provider       String
+  mode           String
+  keyword        String?
+  governorate    String?
+  areaName       String?
+  bounds         String?
+  radiusMeters   Int?
+  types          String?
+  resultCount    Int      @default(0)
+  newCount       Int      @default(0)
+  duplicateCount Int      @default(0)
+  unnamedCount   Int      @default(0)
+  executedById   String?
+  executedBy     User?    @relation(fields: [executedById], references: [id])
+  details        String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model ImportLog {
+  id           String   @id @default(cuid())
+  fileName     String
+  fileType     String   @default("XLSX")
+  uploadedAt   DateTime @default(now())
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  totalRows    Int      @default(0)
+  addedCount   Int      @default(0)
+  skippedCount Int      @default(0)
+  errorCount   Int      @default(0)
+  status       String   @default("COMPLETED")
+  details      String?
+  createdAt    DateTime @default(now())
+}
+
+model SchoolVisit {
+  id                String    @id @default(cuid())
+  dedupeKey         String    @unique
+  schoolId          String
+  school            School    @relation(fields: [schoolId], references: [id])
+  employeeId        String
+  employee          User      @relation(fields: [employeeId], references: [id])
+  contactType       String
+  result            String
+  resultOther       String?
+  rejectionReason   String?
+  contactPersonName  String?
+  contactPersonTitle String?
+  principalName      String?
+  schoolPhone        String?
+  studentCount       Int?
+  schoolFieldsUpdated Boolean @default(false)
+  needs             String?
+  needsOther        String?
+  subscribersCount  Int?
+  nextFollowUpAt    DateTime?
+  notes             String?
+  lat               Float?
+  lng               Float?
+  locationAccuracy  Float?
+  locationSource    String?
+  createdAt         DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([employeeId])
+  @@index([createdAt])
+  @@index([contactType])
+  @@index([result])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  String
+  actorId    String?
+  actorName  String
+  action     String
+  entityType String
+  entityId   String?
+  details    String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+}

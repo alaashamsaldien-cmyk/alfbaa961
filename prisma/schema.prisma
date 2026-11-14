@@ -1,0 +1,352 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      String   @default("ADMIN") // ADMIN مدير النظام | MANAGER مدير إداري (موظف) | STAFF موظف
+  isActive  Boolean  @default(true)
+  // حقول تسجيل الدخول — تُضاف عند تعيين كلمة المرور، لا تتأثر البيانات الموجودة
+  username  String?  @unique
+  passwordHash String?
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  // حقول الموظفين — نطاق العمل وبيانات الحساب الوظيفي
+  phone       String?  // رقم هاتف الموظف
+  jobTitle    String?  // المسمى الوظيفي
+  governorate String?  // المحافظة المرتبطة بعمل الموظف (نطاق العمل — فارغ = كل المحافظات)
+  regionId    String?  // المنطقة المرتبطة بعمل الموظف (فارغ = كل المناطق ضمن النطاق الأوسع)
+  posts          Post[]
+  activities     Activity[]
+  followUps      FollowUp[]
+  notifications  Notification[]
+  importLogs     ImportLog[]
+  discoverySessions DiscoverySession[]
+  authSessions  AuthSession[]
+  workRegion     Region?          @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  permissions    EmployeePermission[]
+  schoolVisits   SchoolVisit[]
+}
+
+// صلاحيات الموظف لكل قسم — يحددها المدير من «تخصيص الواجهة والصلاحيات»
+// visible = إظهار الأيقونة في واجهة الموظف، وبقية الحقول صلاحيات تفصيلية مطبقة على الخادم
+model EmployeePermission {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section    String   // مفتاح القسم: schools | visits | visit_register | reports ...
+  visible    Boolean  @default(false)
+  canView    Boolean  @default(false) // عرض البيانات
+  canCreate  Boolean  @default(false) // إضافة بيانات جديدة
+  canEdit    Boolean  @default(false) // تعديل البيانات
+  canDelete  Boolean  @default(false) // حذف البيانات
+  canExport  Boolean  @default(false) // تصدير البيانات
+  canApprove Boolean  @default(false) // اعتماد أو تأكيد العمليات
+  canManage  Boolean  @default(false) // إدارة البيانات وتخصيصها للموظفين الآخرين
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, section])
+  @@index([userId])
+}
+
+// قوالب الصلاحيات الجاهزة التي ينشئها المدير ويطبقها على الموظفين
+model PermissionTemplate {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  sectionsJson String   // JSON: { section: { visible, canView, canCreate, ... } }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  author    User?    @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// المناطق — تُستخدم عند استيراد المدارس من Excel ونتائج الاكتشاف ومطابقة أسماء المناطق
+// الاسم فريد ضمن المحافظة نفسها للسماح بالتوسع الجغرافي لكل محافظات العراق
+model Region {
+  id          String   @id @default(cuid())
+  name        String
+  governorate String   @default("بغداد") // المحافظة التي تتبع لها المنطقة
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  schools     School[]
+  employees   User[]
+
+  @@unique([name, governorate])
+}
+
+// المنسقات الميدانيات — النموذج جاهز مع حسابات دخول للبوابة الميدانية
+model Coordinator {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  // حساب الدخول للبوابة الميدانية — يُنشأ بالإدارة عند الحاجة، فارغ = لا حساب بعد
+  username     String?  @unique
+  passwordHash String?
+  lastLoginAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  schools   School[]
+  activities Activity[]
+  followUps  FollowUp[]
+  authSessions AuthSession[]
+}
+
+// جلسات تسجيل الدخول الفعلية — كوكي HttpOnly يربط بالسجل، والحذف عند الخروج
+model AuthSession {
+  id            String   @id @default(cuid())
+  token         String   @unique
+  principalType String   // ADMIN | COORDINATOR
+  userId        String?
+  user          User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coordinatorId String?
+  coordinator   Coordinator?  @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// المدارس — الحقول مصممة لتطابق أعمدة ملف Excel المستقبلي
+// الحقول الاختيارية تسمح بقيم فارغة عند الإدخال الأول
+model School {
+  id                 String   @id @default(cuid())
+  name               String
+  governorate        String?  // المحافظة
+  regionId           String?
+  region             Region?  @relation(fields: [regionId], references: [id])
+  institutionType    String?  // نوع المؤسسة التعليمية
+  stage              String?  // المرحلة الدراسية
+  principalName      String?  // اسم المدير أو المديرة
+  phone              String?
+  address            String?
+  locationUrl        String?  // رابط الموقع الجغرافي إن وجد
+  // حالة التوفر — مستقلة تماماً
+  availabilityStatus String   @default("AVAILABLE") // AVAILABLE (متاحة) | UNAVAILABLE (غير متاحة)
+  // حالة التعاقد — مستقلة تماماً
+  contractStatus     String   @default("NOT_CONTRACTED") // CONTRACTED (متعاقدة) | NOT_CONTRACTED (غير متعاقدة)
+  platformName       String?  // اسم المنصة التعليمية الحالية إن وجدت
+  coordinatorId      String?
+  coordinator        Coordinator? @relation(fields: [coordinatorId], references: [id])
+  lastVisitAt        DateTime? // آخر زيارة مسجلة (يُحدّث تلقائياً عند تسجيل زيارة)
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  activities         Activity[]
+  followUps          FollowUp[]
+  schoolVisits       SchoolVisit[]
+
+  // ——— حقول الاكتشاف والموقع الجغرافي ———
+  lat                Float?   // خط العرض — مطلوب لكل مدرسة معتمدة على الخريطة
+  lng                Float?   // خط الطول
+  placeId            String?  @unique // Google Place ID — يُستخدم لمنع التكرار (يُخزن وفق شروط الخدمة)
+  osmType            String?  // نوع كائن OpenStreetMap (node/way/relation) — بديل المعرف عند عدم وجود Place ID
+  osmId              BigInt?  // معرف كائن OpenStreetMap — BIGINT لأن معرفات OSM تتجاوز حدود Int32
+  dataSource         String?  // مصدر السجل: GOOGLE_PLACES | OSM_NOMINATIM | OSM_OVERPASS | EXCEL_IMPORT | MANUAL_ENTRY
+  sector             String?  // القطاع: GOVERNMENT (حكومية) | PRIVATE (أهلية) — فارغ = غير محدد
+  studentCount       Int?     // عدد الطلاب — لا يُخمّن أبداً، يُترك فارغاً إن لم يتوفر
+  stages             String?  // المراحل الدراسية — نص حر من المصدر أو من المنسقة
+  website            String?  // الموقع الإلكتروني
+  facebookUrl        String?  // صفحة Facebook
+  instagramUrl       String?  // حساب Instagram
+  otherLinks         String?  // JSON: أي صفحات تواصل رسمية أخرى
+  regionText         String?  // اسم المنطقة كما ورد من المصدر قبل مطابقته مع جدول المناطق
+  discoveryStatus    String   @default("DISCOVERED") // DISCOVERED (مكتشفة) | NEEDS_VERIFICATION (تحتاج تحقق) | OFFICIALLY_DOCUMENTED (موثقة رسمياً) | FIELD_CONFIRMED (مؤكدة ميدانياً)
+  fieldMeta          String?  // JSON: مصدر كل حقل وتاريخ جمعه وحالة تحققه ودرجة موثوقيته
+  dataQuality        Int      @default(0) // درجة اكتمال البيانات 0-100 تُحسب فعلياً من الحقول المتوفرة
+  discoveredAt       DateTime? // وقت اكتشاف السجل من مصدر خارجي
+  discoverySessionId String?  // جلسة الاكتشاف التي أضافت هذا السجل
+
+  @@unique([osmType, osmId])
+  @@index([regionId])
+  @@index([coordinatorId])
+  @@index([contractStatus])
+  @@index([availabilityStatus])
+  @@index([governorate])
+  @@index([discoveryStatus])
+  @@index([dataSource])
+}
+
+// الزيارات والتواصل — سجل فعلي لكل نشاط (لا يُحذف عند تحديث بيانات المدرسة)
+model Activity {
+  id            String   @id @default(cuid())
+  type          String   // VISIT (زيارة ميدانية) | CALL (اتصال) | INITIAL_APPROVAL (موافقة أولية) | CONTRACT (تعاقد) | FIELD_UPDATE (تحديث بيانات ميدانية) | OTHER (أخرى)
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id])
+  coordinatorId String?
+  coordinator   Coordinator? @relation(fields: [coordinatorId], references: [id])
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  occurredAt    DateTime @default(now()) // التاريخ والوقت الفعلي للنشاط
+  result        String?  // نتيجة النشاط
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([type, occurredAt])
+  @@index([occurredAt])
+}
+
+// المراجعات والمتابعات المبرمجة
+model FollowUp {
+  id            String    @id @default(cuid())
+  title         String?   // وصف مختصر
+  type          String    @default("REVIEW") // REVIEW (مراجعة) | FOLLOW_UP (متابعة)
+  schoolId      String
+  school        School    @relation(fields: [schoolId], references: [id])
+  coordinatorId String?
+  coordinator   Coordinator? @relation(fields: [coordinatorId], references: [id])
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  dueDate       DateTime  // موعد الاستحقاق
+  status        String    @default("PENDING") // PENDING (معلقة) | DONE (منجزة) | CANCELLED (ملغاة)
+  completedAt   DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, dueDate])
+  @@index([type, dueDate])
+}
+
+// الإشعارات الفعلية المرتبطة بجرس الإشعارات في الشريط العلوي
+model Notification {
+  id        String   @id @default(cuid())
+  title     String
+  message   String
+  type      String   @default("INFO") // INFO | SUCCESS | WARNING | ERROR
+  isRead    Boolean  @default(false)
+  userId    String?  // null = إشعار عام لكل الإدارة
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([isRead])
+}
+
+// جلسة اكتشاف — تحفظ نتائج كل عملية بحث وتشير إلى ما أُضيف منها لتجنب إعادة اكتشاف السجلات نفسها
+model DiscoverySession {
+  id             String   @id @default(cuid())
+  provider       String   // GOOGLE_PLACES | OSM_NOMINATIM | OSM_OVERPASS
+  mode           String   // TEXT (بحث نصي) | AREA (نطاق جغرافي)
+  keyword        String?  // كلمة البحث إن وُجدت
+  governorate    String?  // المحافظة المحددة
+  areaName       String?  // المنطقة المحددة
+  bounds         String?  // JSON: حدود النطاق الجغرافي west/south/east/north
+  radiusMeters   Int?     // نصف قطر البحث بالأمتار إن وُجد
+  types          String?  // JSON: أنواع المؤسسات المطلوبة
+  resultCount    Int      @default(0) // عدد النتائج المرجعة من المصدر
+  newCount       Int      @default(0) // المضافة فعلياً إلى النظام
+  duplicateCount Int      @default(0) // الموجودة مسبقاً
+  unnamedCount   Int      @default(0) // نتائج بلا اسم تُهمل
+  executedById   String?
+  executedBy     User?    @relation(fields: [executedById], references: [id])
+  details        String?  // JSON: حالة كل نتيجة (أُضيفت / مكررة / متشابهة للمراجعة)
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// سجل عمليات استيراد المدارس من Excel
+model ImportLog {
+  id           String   @id @default(cuid())
+  fileName     String
+  fileType     String   @default("XLSX") // XLSX | CSV
+  uploadedAt   DateTime @default(now())
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  totalRows    Int      @default(0)
+  addedCount   Int      @default(0)
+  skippedCount Int      @default(0) // مكرر أو تم تجاهله
+  errorCount   Int      @default(0)
+  status       String   @default("COMPLETED") // COMPLETED | PARTIAL | FAILED
+  details      String?  // JSON: تفاصيل الأخطاء والسجلات التي تحتاج تصحيحاً
+  createdAt    DateTime @default(now())
+}
+
+// ——— الزيارات الميدانية المسجلة من الموظفين (نموذج تسجيل زيارة متعدد الخطوات) ———
+// كل زيارة سجل مستقل ودائم لا يُستبدل — حتى لو زار الموظف المدرسة نفسها عدة مرات
+// dedupeKey فريد يمنع إنشاء زيارات مكررة عند إعادة الإرسال بعد انقطاع الإنترنت
+model SchoolVisit {
+  id                String    @id @default(cuid())
+  dedupeKey         String    @unique // UUID يولده جهاز الموظف — إعادة الإرسال تعيد السجل نفسه دون تكرار
+  schoolId          String
+  school            School    @relation(fields: [schoolId], references: [id])
+  employeeId        String
+  employee          User      @relation(fields: [employeeId], references: [id])
+  // الخطوة 2: نوع التواصل — اختيار واحد
+  contactType       String    // FIELD_VISIT زيارة ميدانية | PHONE اتصال | WHATSAPP | SMS | MEETING اجتماع متابعة
+  // الخطوة 3: نتيجة الزيارة — اختيار واحد
+  result            String    // INITIAL_APPROVAL | APPROVED | NEEDS_ANOTHER_VISIT | CONTRACTED | REJECTED | SCHOOL_NOT_FOUND | OTHER
+  resultOther       String?   // نص «أخرى» الإلزامي عند اختيار نتيجة أخرى
+  rejectionReason   String?   // سبب الرفض — إلزامي عند اختيار «رفض»
+  // الخطوة 4: معلومات الشخص الذي تم التواصل معه — كما أدخلها الموظف (لا تستبدل بيانات المدرسة الأصلية تلقائياً)
+  contactPersonName  String?  // اسم الشخص الذي تم التواصل معه
+  contactPersonTitle String?  // منصبه الوظيفي
+  principalName      String?  // اسم مدير المدرسة كما أدخله الموظف
+  schoolPhone        String?  // رقم هاتف المدرسة كما أدخله الموظف
+  studentCount       Int?     // عدد طلاب المدرسة كما أدخله الموظف
+  schoolFieldsUpdated Boolean @default(false) // هل حُدثت بيانات المدرسة الأصلية ضمن هذه الزيارة (مقرون بسجل تغييرات AuditLog)
+  // الخطوة 5: احتياجات المدرسة — اختيار متعدد
+  needs             String?   // JSON array: PAINT | SEATS | SMART_SCREEN | AC | NONE | OTHER
+  needsOther        String?   // شرح «أخرى» الإلزامي
+  // الخطوة 6: معلومات المتابعة
+  subscribersCount  Int?      // عدد الطلاب المشتركين بالمنصة
+  nextFollowUpAt    DateTime? // موعد المتابعة القادم
+  // الخطوة 7: ملاحظات
+  notes             String?
+  // الموقع — يُحدد في الخطوة الأولى ويُحفظ مع سجل الزيارة تلقائياً
+  lat               Float?
+  lng               Float?
+  locationAccuracy  Float?    // دقة GPS بالمتر إن توفرت
+  locationSource    String?   // GPS موقع من الهاتف | MAP تحديد يدوي على الخريطة | SAVED تأكيد الموقع المحفوظ
+  createdAt         DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([employeeId])
+  @@index([createdAt])
+  @@index([contactType])
+  @@index([result])
+}
+
+// ——— سجل التدقيق: كل العمليات المهمة تُسجل هنا بلا استثناء ———
+// من إنشاء الموظفين وتغيير الصلاحيات إلى تسجيل الزيارات وتحديث بيانات المدارس
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorType  String   // ADMIN مدير النظام | EMPLOYEE موظف | SYSTEM النظام
+  actorId    String?  // معرف المنفذ إن كان مستخدماً
+  actorName  String   // اسم المنفذ نصياً — يبقى صحيحاً حتى بعد حذف الحساب
+  action     String   // CREATE_EMPLOYEE | UPDATE_EMPLOYEE | DELETE_EMPLOYEE | UPDATE_PERMISSIONS | REGISTER_VISIT | ...
+  entityType String   // USER | SCHOOL_VISIT | SCHOOL | PERMISSIONS | TEMPLATE | SESSION | AUTH
+  entityId   String?
+  details    String?  // JSON: تفاصيل العملية والحقول المتغيرة قبل/بعد
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+}

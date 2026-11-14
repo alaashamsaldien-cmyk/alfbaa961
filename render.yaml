@@ -1,0 +1,30 @@
+# ——— منصة ألف باء — نموذج النشر على Render (Blueprint) ———
+# هذا الملف يُستخدم عند موافقة المالك فقط: https://dashboard.render.com → New → Blueprint
+# الخطة المجانية: خادم ويب مجاني + قاعدة Neon Postgres مجانية تُنشأ يدوياً وتُربط بمتغير البيئة.
+# ملاحظة مهمة: لا تضع أي كلمات مرور أو مفاتيح داخل هذا الملف — كل الأسرار تُدخل من لوحة Render.
+
+services:
+  - type: web
+    name: alifba-platform
+    runtime: node
+    plan: free
+    region: frankfurt        # الأقرب للعراق زمنياً — يمكن تغييرها إلى oregon
+    # 1) توليد عميل Postgres (الافتراضي للتطبيق + العميل الثابت للسكربتات)
+    # 2) إنشاء الجداول على Neon عند أول نشر (db push عديم الأثر عند تكرار النشر)
+    # 3) بناء التطبيق وتجميع الملفات الثابتة ومحرك Prisma في الحزمة المستقلة
+    # ملاحظة: نقل البيانات إلى Neon يتم من عدة نقل آمنة منفصلة (انظر DEPLOYMENT.md)
+    # قبل أول نشر أو بعده — لا توجد أي بيانات داخل هذا المستودع إطلاقاً.
+    buildCommand: npx prisma generate --schema=prisma/schema.postgres.prisma && npx prisma db push --schema=prisma/schema.postgres.prisma --accept-data-loss && npx next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/ && cp node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node .next/standalone/node_modules/.prisma/client/
+    startCommand: NODE_ENV=production node .next/standalone/server.js
+    healthCheckPath: /api/session
+    autoDeploy: true        # كل push إلى الفرع الرئيسي يعيد النشر تلقائياً
+    envVars:
+      - key: NODE_VERSION
+        value: "24.11.1"
+      # رابط قاعدة Neon Postgres المجانية — يُلصق من لوحة Neon في خانة سرية داخل لوحة Render فقط
+      # (يبدأ بـ postgresql://...sslmode=require) — لا يُكتب هنا ولا يُرسل في أي محادثة أبداً
+      - key: DATABASE_URL
+        sync: false
+      # مفتاح خرائط جوجل اختياري — فقط لميزة الاكتشاف عبر Google Places
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
