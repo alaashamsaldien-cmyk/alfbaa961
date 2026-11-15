@@ -125,9 +125,9 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
 
   return (
     <div className="space-y-3" dir="rtl">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="space-y-2">
         <div>
-          <p className="text-lg font-extrabold text-foreground">الزيارات والتواصل</p>
+          <h1 className="text-lg font-extrabold text-foreground">الزيارات والتواصل</h1>
           <p className="text-[11px] text-muted-foreground">
             {canManage ? "لديك صلاحية الاطلاع على زيارات الموظفين الآخرين" : "زياراتك المسجلة — كل زيارة سجل دائم مستقل"}
           </p>
@@ -148,8 +148,11 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
         </div>
       </div>
 
-      {/* فلتر تاريخ مخصص (بتوقيت بغداد) + زر التصدير */}
-      <div className="flex flex-wrap items-center gap-2">
+      <details>
+        <summary className="cursor-pointer text-[11px] text-muted-foreground">
+          فلاتر إضافية{(hasCustomRange || contactType !== "all") && " · مفعّلة"}
+        </summary>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <Select value={contactType} onValueChange={setContactType}>
           <SelectTrigger className="h-9 w-full bg-white" aria-label="نوع التواصل"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -159,7 +162,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
             ))}
           </SelectContent>
         </Select>
-        <div className="flex flex-1 items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 rounded-xl border bg-white px-2.5 py-1.5">
           <span className="text-[10px] font-semibold text-muted-foreground">من</span>
           <Input
             type="date"
@@ -197,6 +200,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
           </Button>
         )}
       </div>
+      </details>
 
       <p className="text-[11px] text-muted-foreground">الإجمالي: {formatNumber(total)}</p>
 
@@ -216,7 +220,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
               key={v.id}
               type="button"
               onClick={() => setDetail(v)}
-              className="w-full rounded-xl border bg-white p-3 text-start shadow-sm active:scale-[0.99]"
+              className="min-h-[86px] w-full rounded-[14px] border bg-white p-3 text-start shadow-sm active:scale-[0.99]"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">

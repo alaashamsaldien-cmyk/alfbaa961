@@ -408,6 +408,7 @@ export function VisitWizard({
       // نجاح الزيارة الجديدة — الطابور المعلق يبقى محفوظاً كما هو (لا فقدان بيانات)
       refreshQueue();
       setDone("registered");
+      window.scrollTo({ top: 0 });
       onRegistered();
       // رسالة النجاح المطلوبة حرفياً — تظهر في شاشة النجاح أسفل الشعار
     } catch (e) {
@@ -436,8 +437,8 @@ export function VisitWizard({
   // ——— شاشة النجاح ———
   if (done) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center space-y-3 text-center" dir="rtl">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 px-2 text-center" dir="rtl">
+        <div className={`flex size-16 items-center justify-center rounded-full ${done === "registered" ? "bg-emerald-100" : "bg-amber-100"}`}>
           {done === "registered"
             ? <CheckCircle2 className="h-9 w-9 text-emerald-600" aria-hidden="true" />
             : <CloudOff className="h-9 w-9 text-amber-600" aria-hidden="true" />}
@@ -445,11 +446,16 @@ export function VisitWizard({
         <p className="text-lg font-extrabold text-foreground">
           {done === "registered" ? "تم تسجيل زيارتك للمدرسة بنجاح" : "حُفظت الزيارة على جهازك بانتظار الإرسال"}
         </p>
+        {done === "registered" && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            سُجّلت الزيارة باسمك وارتبطت بالمدرسة والتاريخ والوقت والإحداثيات. يمكنك مراجعتها في «الزيارات والتواصل».
+          </p>
+        )}
         <Button
           type="button"
           className="mt-3 gap-2"
           onClick={() => {
-            // إعادة تهيئة النموذج لزيارة جديدة
+            window.scrollTo({ top: 0 });
             setDone(null);
             setStep(0);
             setSelected(null);
@@ -472,7 +478,7 @@ export function VisitWizard({
         >
           تسجيل زيارة جديدة
         </Button>
-        <Button type="button" variant="outline" className="w-full" onClick={onExit}>العودة للرئيسية</Button>
+        {done !== "registered" && <Button type="button" variant="outline" onClick={onExit}>العودة للرئيسية</Button>}
         {pendingQueue.length > 0 && (
           <p className="mt-2 text-[11px] text-amber-700">
             لديك {formatNumber(pendingQueue.length)} {pendingQueue.length === 1 ? "زيارة" : "زيارات"} محفوظة على الجهاز بانتظار عودة الاتصال — سيتم إرسالها تلقائياً دون تكرار.
@@ -486,9 +492,9 @@ export function VisitWizard({
 
   return (
     <div className="space-y-3" dir="rtl">
-      <div className="flex items-center justify-between">
-        <p className="text-lg font-extrabold text-foreground">تسجيل زيارة للمدرسة</p>
-        <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">
+      <div className="flex items-center justify-between gap-2">
+        <h1 className="text-lg font-extrabold text-foreground">تسجيل زيارة للمدرسة</h1>
+        <span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-sky-700">
           خطوة {formatNumber(step + 1)} من {formatNumber(steps.length)}
         </span>
       </div>
@@ -496,7 +502,7 @@ export function VisitWizard({
       {/* شريط التقدم */}
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-sky-500 transition-all"
+          className="h-full rounded-full bg-[#00a8ee] transition-all"
           style={{ width: `${((step + 1) / steps.length) * 100}%` }}
           aria-hidden="true"
         />
@@ -562,7 +568,7 @@ export function VisitWizard({
                         key={s.id}
                         type="button"
                         onClick={() => setSelected(s)}
-                        className="flex w-full items-center gap-2 rounded-xl border bg-white p-2.5 text-start active:bg-sky-50"
+                        className="flex min-h-[52px] w-full items-center gap-2 rounded-[14px] border bg-white p-2.5 text-start active:bg-sky-50"
                       >
                         <MapPin className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
                         <div className="min-w-0 flex-1">
@@ -609,7 +615,7 @@ export function VisitWizard({
                       <p className="mt-0.5 text-[10px] text-emerald-700" dir="ltr">
                         {selected.lat?.toFixed(5)}, {selected.lng?.toFixed(5)}
                       </p>
-                      <div className="mt-2 flex gap-2">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         <Button type="button" size="sm" className="flex-1 gap-1.5" onClick={confirmSavedLocation}>
                           <Check className="h-3.5 w-3.5" aria-hidden="true" />
                           تأكيد الموقع المحفوظ
@@ -705,10 +711,10 @@ export function VisitWizard({
             <p className="text-sm font-bold text-foreground">نوع التواصل — اختر نوعاً واحداً</p>
             <RadioGroup value={contactType} onValueChange={setContactType} className="gap-2">
               {CONTACT_TYPES.map((c) => (
-                <label key={c.value} className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-semibold has-[:checked]:border-sky-400 has-[:checked]:bg-sky-50">
+                <label key={c.value} className="flex min-h-[52px] cursor-pointer flex-row-reverse items-center gap-3 rounded-[14px] border px-4 py-3 text-sm has-[[data-state=checked]]:border-sky-400 has-[[data-state=checked]]:bg-sky-50">
                   <RadioGroupItem value={c.value} aria-label={c.label} />
-                  <c.icon className="h-5 w-5 text-sky-600" aria-hidden="true" />
                   {c.label}
+                  <c.icon className="ms-auto size-4 text-sky-600" aria-hidden="true" />
                 </label>
               ))}
             </RadioGroup>
@@ -729,7 +735,7 @@ export function VisitWizard({
               className="gap-2"
             >
               {RESULTS.map((r) => (
-                <label key={r.value} className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-semibold has-[:checked]:border-sky-400 has-[:checked]:bg-sky-50">
+                <label key={r.value} className="flex min-h-[52px] cursor-pointer flex-row-reverse items-center gap-3 rounded-[14px] border px-4 py-3 text-sm has-[[data-state=checked]]:border-sky-400 has-[[data-state=checked]]:bg-sky-50">
                   <RadioGroupItem value={r.value} aria-label={r.label} />
                   {r.label}
                 </label>
@@ -805,7 +811,7 @@ export function VisitWizard({
               {NEEDS_OPTIONS.map((n) => (
                 <label
                   key={n.value}
-                  className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-semibold has-[:checked]:border-sky-400 has-[:checked]:bg-sky-50"
+                  className="flex min-h-[52px] cursor-pointer items-center gap-3 rounded-[14px] border px-4 py-3 text-sm"
                 >
                   <Checkbox
                     checked={needs.includes(n.value)}
@@ -908,7 +914,7 @@ export function VisitWizard({
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : (
-            <Button type="button" className="flex-1 gap-1.5" onClick={submit} disabled={sending}>
+            <Button type="button" className="h-auto min-h-9 flex-1 gap-1.5 whitespace-normal" onClick={submit} disabled={sending}>
               {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
               {sending ? "جارٍ الإرسال..." : "إرسال وتسجيل الزيارة"}
             </Button>

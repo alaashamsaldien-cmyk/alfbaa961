@@ -159,11 +159,11 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
   const navSections = GRID_ORDER.filter((k) => enabledSections.has(k));
 
   return (
-    <div className="mx-auto min-h-screen max-w-lg bg-background pb-20" dir="rtl">
+    <div className="mx-auto min-h-dvh max-w-lg bg-[#f3f4f6] pb-[calc(3.5rem+env(safe-area-inset-bottom))]" dir="rtl">
       {/* الترويسة */}
-      <header className="sticky top-0 z-40 border-b bg-sidebar">
+      <header className="sticky top-0 z-40 bg-sidebar pt-[env(safe-area-inset-top)] shadow-[0_1px_0_var(--border)]">
         <div className="flex h-14 items-center gap-3 px-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 ring-1 ring-sky-400/30">
             <GraduationCap className="h-5 w-5 text-sky-400" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
@@ -193,7 +193,7 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
         </div>
       </header>
 
-      <main className="space-y-4 p-4" aria-label="بوابة الموظف">
+      <main className="space-y-4 p-4" aria-label={me.employee.role === "COORDINATOR" ? "بوابة المنسقة الميدانية" : "بوابة الموظف"}>
         {section === "home" && (
           <EmployeeHomeSection me={me} enabledSections={navSections} onOpen={openSection} />
         )}
@@ -261,7 +261,7 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
 
       {/* التنقل السفلي — مناسب لليد الواحدة */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-lg border-t bg-sidebar"
+        className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-lg bg-sidebar pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_var(--border)]"
         aria-label="التنقل السفلي"
       >
         <div className="grid" style={{ gridTemplateColumns: `repeat(${bottomNav.length}, minmax(0, 1fr))` }}>
@@ -274,10 +274,10 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
                 type="button"
                 onClick={() => openSection(key)}
                 aria-current={active ? "page" : undefined}
-                className={`flex flex-col items-center gap-0.5 py-2.5 ${active ? "text-sky-400" : "text-sidebar-foreground/80"}`}
+                className={`flex min-h-14 flex-col items-center justify-center gap-0.5 px-0.5 py-1 ${active ? "text-[#00baf2]" : "text-sidebar-foreground/80"}`}
               >
                 <Icon className="h-5 w-5" aria-hidden="true" />
-                <span className="text-[10px] font-semibold">
+                <span className="text-[10px] leading-tight">
                   {key === "home" ? "الرئيسية" : SECTION_META_AR[key].label}
                 </span>
               </button>
@@ -342,11 +342,11 @@ function EmployeeHomeSection({
   const isMorning = new Date().getHours() < 12;
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl bg-gradient-to-l from-sky-600 to-sky-500 p-4 text-white">
+      <div className="rounded-2xl bg-linear-to-l from-[#0080c4] to-[#00a8ee] p-4 text-white">
         <p className="text-sm font-bold">{isMorning ? "صباح الخير" : "مساء الخير"}، {me.employee.name}</p>
         <p className="mt-1 text-[11px] opacity-90">{formatFullDate(me.serverTime)}</p>
-        <h2 className="mt-3 text-xs font-semibold">ملخص العمل الميداني</h2>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <h2 className="sr-only">ملخص العمل الميداني</h2>
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-white/15 px-3 py-2">
             <p className="text-lg font-extrabold">{formatNumber(stats.visitsToday)}</p>
             <p className="text-[10px] opacity-90">زياراتي اليوم</p>

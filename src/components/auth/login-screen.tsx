@@ -64,11 +64,11 @@ export function LoginScreen({ needsSetup, onAuthenticated }: LoginScreenProps) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4" dir="rtl">
+    <div className="flex min-h-dvh items-center justify-center bg-[#f3f4f6] p-4" dir="rtl">
       <div className="w-full max-w-md">
         {/* الترويسة بهوية القائمة الجانبية */}
         <div className="overflow-hidden rounded-t-2xl bg-sidebar px-6 py-7 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-sky-500/15 ring-1 ring-sky-400/30">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-sky-500/15 ring-1 ring-sky-400/30">
             <GraduationCap className="h-8 w-8 text-sky-400" aria-hidden="true" />
           </div>
           <p className="mt-3 text-lg font-extrabold text-white">منصة ألف باء</p>
@@ -151,7 +151,7 @@ export function LoginScreen({ needsSetup, onAuthenticated }: LoginScreenProps) {
           ) : (
             <>
               <div className="mb-4 text-center">
-                <p className="text-base font-extrabold text-foreground">تسجيل الدخول</p>
+                <h1 className="text-base font-extrabold text-foreground">تسجيل الدخول</h1>
                 <p className="mt-1 text-xs text-muted-foreground">
                   حساب مدير النظام أو حساب موظف أو منسقة ميدانية مُنشأ من الإدارة.
                 </p>
@@ -165,7 +165,7 @@ export function LoginScreen({ needsSetup, onAuthenticated }: LoginScreenProps) {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     autoComplete="username"
-                    className="text-start"
+                    className="text-start text-base"
                     placeholder="admin"
                   />
                 </div>
@@ -179,12 +179,12 @@ export function LoginScreen({ needsSetup, onAuthenticated }: LoginScreenProps) {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       autoComplete="current-password"
-                      className="text-start pe-10"
+                      className="text-start ps-9 text-base"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute left-0 top-1/2 grid size-9 -translate-y-1/2 place-items-center text-muted-foreground hover:text-foreground"
                       aria-label={showPassword ? "إخفاء كلمة المرور" : "إظهار كلمة المرور"}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
