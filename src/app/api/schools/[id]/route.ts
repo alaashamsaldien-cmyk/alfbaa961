@@ -5,6 +5,7 @@ import { mapSchool } from "@/lib/schools-query";
 import { mergeFieldMeta, computeDataQuality, type FieldMeta } from "@/lib/geo/normalize";
 import { getCurrentUser } from "@/lib/session";
 import { requireAdmin } from "@/lib/auth";
+import { approvedMapSchoolWhere, MAP_APPROVED } from "@/lib/map-school-scope";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -100,9 +101,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       data.contractStatus = val;
     }
     if ("discoveryStatus" in body) {
-      const allowed = ["DISCOVERED", "NEEDS_VERIFICATION", "OFFICIALLY_DOCUMENTED", "FIELD_CONFIRMED"];
+      const allowed = ["DISCOVERED", "NEEDS_VERIFICATION", "OFFICIALLY_DOCUMENTED", "FIELD_CONFIRMED", MAP_APPROVED];
       if (!allowed.includes(body.discoveryStatus)) {
         return NextResponse.json({ error: "حالة توثيق غير صحيحة." }, { status: 400 });
+      }
+      if (body.discoveryStatus === MAP_APPROVED && school.discoveryStatus !== MAP_APPROVED) {
+        return NextResponse.json({ error: "اعتمد الموقع من تبويب مدارس الخريطة." }, { status: 400 });
       }
       data.discoveryStatus = body.discoveryStatus;
     }
@@ -111,6 +115,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     if ("coordinatorId" in body) {
       data.coordinatorId = body.coordinatorId && typeof body.coordinatorId === "string" ? body.coordinatorId : null;
+      if (data.coordinatorId && !await db.school.findFirst({ where: { id, AND: [approvedMapSchoolWhere] }, select: { id: true } })) {
+        return NextResponse.json({ error: "يمكن تنسيب مدارس الخريطة المعتمدة فقط." }, { status: 409 });
+      }
     }
     // تصحيح الإحداثيات يدوياً — بإذن الإدارة فقط
     if ("lat" in body || "lng" in body) {

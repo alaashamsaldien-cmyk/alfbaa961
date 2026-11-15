@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { approvedMapSchoolWhere } from "@/lib/map-school-scope";
 
 export async function POST(request: NextRequest) {
   const guard = await requireAdmin();
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const action = body.action === "unassign" ? "unassign" : "assign";
-    const schoolIds: string[] = Array.isArray(body.schoolIds) ? body.schoolIds.filter((s: unknown) => typeof s === "string") : [];
+    const schoolIds: string[] = Array.isArray(body.schoolIds) ? [...new Set<string>(body.schoolIds.filter((s: unknown) => typeof s === "string"))] : [];
     if (schoolIds.length === 0) return NextResponse.json({ error: "حدد مدرسة واحدة على الأقل." }, { status: 400 });
 
     if (action === "unassign") {
@@ -24,10 +25,11 @@ export async function POST(request: NextRequest) {
     const coordinator = await db.coordinator.findFirst({ where: { id: coordinatorId, isActive: true } });
     if (!coordinator) return NextResponse.json({ error: "المنسقة غير موجودة أو غير نشطة." }, { status: 404 });
 
-    const res = await db.school.updateMany({
-      where: { id: { in: schoolIds } },
-      data: { coordinatorId },
-    });
+    const scope = { id: { in: schoolIds }, AND: [approvedMapSchoolWhere] };
+    if (await db.school.count({ where: scope }) !== schoolIds.length) {
+      return NextResponse.json({ error: "يمكن تنسيب مدارس الخريطة المعتمدة فقط." }, { status: 409 });
+    }
+    const res = await db.school.updateMany({ where: scope, data: { coordinatorId } });
 
     await db.notification.create({
       data: {

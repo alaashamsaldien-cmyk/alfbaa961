@@ -19,7 +19,6 @@ import { formatShortDate } from "@/lib/time";
 
 const coordinatorPermissions = {
   canViewSchools: "عرض المدارس",
-  canAddSchools: "إضافة مدرسة",
   canRegisterVisits: "تسجيل زيارة",
   canViewVisits: "عرض الزيارات والتواصل",
 } as const;

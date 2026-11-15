@@ -15,6 +15,10 @@ import {
   Plus,
   Search,
   UserRound,
+  Navigation,
+  Share2,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +61,70 @@ interface SchoolsSectionProps {
   onRegistered: () => void;
   defaultAddOpen?: boolean;
   title?: string;
+}
+
+function SchoolLocationActions({ school }: { school: SchoolRow }) {
+  const { toast } = useToast();
+  const [showLink, setShowLink] = useState(false);
+  const { lat, lng } = school;
+  if (!school.hasCoords || lat === null || lng === null) {
+    return <p className="text-xs text-muted-foreground">بحاجة لتثبيت الموقع</p>;
+  }
+
+  const coordinates = `${lat},${lng}`;
+  const directionsUrl = `https://www.google.com/maps/dir/?${new URLSearchParams({
+    api: "1", destination: coordinates, dir_action: "navigate",
+  })}`;
+  const wazeUrl = `https://waze.com/ul?${new URLSearchParams({ ll: coordinates, navigate: "yes" })}`;
+  const locationUrl = `https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: coordinates })}`;
+
+  const copyLocation = async () => {
+    try {
+      await navigator.clipboard.writeText(locationUrl);
+      toast({ title: "تم نسخ رابط الموقع" });
+    } catch {
+      setShowLink(true);
+    }
+  };
+
+  const shareLocation = async () => {
+    if (!navigator.share) {
+      await copyLocation();
+      return;
+    }
+    try {
+      await navigator.share({ title: school.name, text: school.name, url: locationUrl });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      await copyLocation();
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <Button asChild size="sm" className="h-10">
+          <a href={directionsUrl} target="_blank" rel="noopener noreferrer">
+            <Navigation aria-hidden="true" /> الذهاب إلى هناك
+          </a>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="h-10">
+          <a href={wazeUrl} target="_blank" rel="noopener noreferrer">Waze</a>
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" className="h-10" onClick={shareLocation}>
+          <Share2 aria-hidden="true" /> مشاركة الموقع
+        </Button>
+        <Button type="button" variant="ghost" size="sm" className="h-10" onClick={copyLocation}>
+          <Copy aria-hidden="true" /> نسخ رابط الموقع
+        </Button>
+      </div>
+      {showLink && (
+        <Input readOnly dir="ltr" aria-label="رابط موقع المدرسة" value={locationUrl} onFocus={(event) => event.currentTarget.select()} />
+      )}
+    </div>
+  );
 }
 
 export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, defaultAddOpen, title }: SchoolsSectionProps) {
@@ -255,7 +323,9 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                   <div>
                     <p className="text-sm font-bold">{focusedSchool.name}</p>
                     <p className="text-xs text-muted-foreground">{focusedSchool.address ?? focusedSchool.regionName}</p>
-                    <p className="text-xs">{focusedSchool.lastVisitAt ? `آخر زيارة: ${formatFullDate(focusedSchool.lastVisitAt)}` : "لم تُزر"}</p>
+                    <p className={`text-xs ${focusedSchool.lastVisitAt ? "font-semibold text-emerald-700" : ""}`}>
+                      {focusedSchool.lastVisitAt ? `✓ تمّت الزيارة · ${formatFullDate(focusedSchool.lastVisitAt)}` : "لم تُزر"}
+                    </p>
                   </div>
                   <Button type="button" size="sm" variant="outline" onClick={() => openDetail(focusedSchool.id)}>تفاصيل المدرسة</Button>
                 </div>
@@ -277,10 +347,10 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
               key={s.id}
               type="button"
               onClick={() => openDetail(s.id)}
-              className="flex w-full items-center gap-3 rounded-xl border bg-white p-3 text-start shadow-sm active:scale-[0.99]"
+              className={`flex w-full items-center gap-3 rounded-xl border p-3 text-start shadow-sm active:scale-[0.99] ${s.lastVisitAt ? "border-emerald-200 bg-emerald-50/50" : "bg-white"}`}
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10">
-                <MapPin className="h-5 w-5 text-sky-600" aria-hidden="true" />
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${s.lastVisitAt ? "bg-emerald-100 text-emerald-700" : "bg-sky-500/10 text-sky-600"}`}>
+                {s.lastVisitAt ? <Check className="h-5 w-5" aria-hidden="true" /> : <MapPin className="h-5 w-5" aria-hidden="true" />}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold text-foreground">{s.name}</p>
@@ -292,7 +362,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                     {s.contractStatus === "CONTRACTED" ? "متعاقدة" : "غير متعاقدة"}
                   </Badge>
                   {s.lastVisitAt && (
-                    <span className="text-[9px] text-muted-foreground" suppressHydrationWarning>آخر زيارة: {formatFullDate(s.lastVisitAt)}</span>
+                    <Badge variant="outline" className="border-emerald-300 bg-white text-[9px] text-emerald-800">تمّت الزيارة</Badge>
                   )}
                 </div>
               </div>
@@ -310,6 +380,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
           </SheetHeader>
           {detail && (
             <div className="space-y-2 p-4">
+              {detail.school.lastVisitAt && <Badge variant="outline" className="gap-1 border-emerald-300 bg-emerald-50 text-emerald-800"><Check size={14} aria-hidden="true" /> تمّت الزيارة</Badge>}
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { label: "المحافظة", value: detail.school.governorate ?? "—" },
@@ -337,9 +408,10 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                   <span className="text-xs font-semibold text-foreground" style={{ direction: "ltr" }}>{detail.school.phone}</span>
                 </a>
               )}
-              {detail.school.address && (
-                <p className="rounded-lg border bg-white p-2.5 text-xs text-muted-foreground">{detail.school.address}</p>
-              )}
+              <div className="space-y-2 rounded-lg border bg-white p-2.5">
+                {detail.school.address && <p className="text-xs text-muted-foreground">{detail.school.address}</p>}
+                <SchoolLocationActions key={detail.school.id} school={detail.school} />
+              </div>
               {detail.school.hasCoords && detail.school.lat !== null && (
                 <div className="h-44 overflow-hidden rounded-xl border">
                   <BaseMap
@@ -350,7 +422,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                         id: detail.school.id,
                         lat: detail.school.lat,
                         lng: detail.school.lng ?? 0,
-                        color: "sky",
+                        color: detail.school.lastVisitAt ? "green" : "sky",
                         title: detail.school.name,
                       } satisfies MapMarker,
                     ]}

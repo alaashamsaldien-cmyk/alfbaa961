@@ -3,6 +3,7 @@
 // وينشئ إشعاراً يظهر فوراً في لوحة الإدارة
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { approvedMapSchoolWhere } from "@/lib/map-school-scope";
 import { getPrincipal } from "@/lib/auth";
 import { getBaghdadStartOfDay, getBaghdadEndOfDay } from "@/lib/time";
 
@@ -36,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // التحقق الحرج من الصلاحية: المدرسة مخصصة لهذه المنسقة حصراً
-    const school = await db.school.findUnique({ where: { id: schoolId } });
+    const school = await db.school.findFirst({ where: { id: schoolId, coordinatorId, AND: [approvedMapSchoolWhere] } });
     if (!school) return NextResponse.json({ error: "المدرسة غير موجودة." }, { status: 404 });
     if (school.coordinatorId !== coordinatorId) {
       return NextResponse.json(

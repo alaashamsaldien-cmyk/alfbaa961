@@ -4,6 +4,8 @@
 //  - معاينة إدارية (ADMIN): يمرر coordinatorId صراحة لمعاينة ما ستراه المنسقة
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { approvedMapSchoolWhere, isMapSchoolSource } from "@/lib/map-school-scope";
+import { coordinatorSchoolContact } from "@/lib/field-account";
 import { getPrincipal } from "@/lib/auth";
 import { mapSchool } from "@/lib/schools-query";
 import { getBaghdadStartOfDay } from "@/lib/time";
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
     }
 
     const schools = await db.school.findMany({
-      where: { coordinatorId },
+      where: { coordinatorId, AND: [approvedMapSchoolWhere] },
       include: { region: true, coordinator: { select: { id: true, name: true } } },
       orderBy: { name: "asc" },
       take: 500,
@@ -70,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     // آخر نشاطاتها المسجلة (تظهر نفسها في لوحة الإدارة فوراً)
     const activities = preview || coordinator.canViewVisits ? await db.activity.findMany({
-      where: { coordinatorId },
+      where: { coordinatorId, school: approvedMapSchoolWhere },
       orderBy: { occurredAt: "desc" },
       take: 15,
       include: { school: { select: { name: true } } },
@@ -78,7 +80,7 @@ export async function GET(request: NextRequest) {
 
     // مراجعاتها ومتابعاتها المخصصة لها — المتأخرة أولاً
     const followUps = await db.followUp.findMany({
-      where: { coordinatorId, status: "PENDING" },
+      where: { coordinatorId, status: "PENDING", school: approvedMapSchoolWhere },
       orderBy: { dueDate: "asc" },
       take: 30,
       include: { school: { select: { name: true } } },
@@ -88,7 +90,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       preview,
       coordinator: { id: coordinator.id, name: coordinator.name, phone: coordinator.phone },
-      schools: schools.map((s) => mapSchool(s as never)),
+      schools: schools.map((school) => {
+        const result = mapSchool(school as never);
+        if (preview) return result;
+        return {
+          ...result, ...coordinatorSchoolContact(school), notes: null, fieldMeta: null,
+          facebookUrl: null, instagramUrl: null, website: null, otherLinks: [],
+          stages: isMapSchoolSource(school.dataSource) ? result.stages : null,
+          platformName: isMapSchoolSource(school.dataSource) ? result.platformName : null,
+        };
+      }),
       regions,
       recentActivities: activities.map((a) => ({
         id: a.id,

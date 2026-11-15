@@ -11,6 +11,7 @@ import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { isInsideIraq } from "@/lib/geo/iraq";
 import { parseVisitFilters, VISIT_CONTACT_TYPES } from "@/lib/visit-filters";
+import { approvedMapSchoolWhere, isMapSchoolSource } from "@/lib/map-school-scope";
 
 const RESULTS = ["INITIAL_APPROVAL", "APPROVED", "NEEDS_ANOTHER_VISIT", "CONTRACTED", "REJECTED", "SCHOOL_NOT_FOUND", "OTHER"] as const;
 const NEEDS = ["PAINT", "SEATS", "SMART_SCREEN", "AC", "NONE", "OTHER"] as const;
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
     const where: Record<string, unknown> = {};
     if (!seeOthers) {
       Object.assign(where, fieldVisitOwner(principal)); // زياراته هو فقط — منع صارم لزيارات الآخرين
+      if (principal.isCoordinator) where.school = approvedMapSchoolWhere;
     } else {
       where.school = await getFieldSchoolScope(principal);
     }
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          school: { select: { name: true, address: true, regionText: true, region: { select: { name: true } }, governorate: true } },
+          school: { select: { name: true, address: true, dataSource: true, regionText: true, region: { select: { name: true } }, governorate: true } },
           employee: { select: { name: true } },
           coordinator: { select: { name: true } },
         },
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
         createdAt: v.createdAt.toISOString(),
         schoolId: v.schoolId,
         schoolName: v.school.name,
-        schoolAddress: v.school.address,
+        schoolAddress: !principal.isCoordinator || isMapSchoolSource(v.school.dataSource) ? v.school.address : null,
         regionName: v.school.region?.name ?? v.school.regionText,
         employeeName: v.coordinator?.name ?? v.employee?.name ?? null,
         isMine: principal.isCoordinator ? v.coordinatorId === principal.userId : v.employeeId === principal.userId,
@@ -206,15 +208,16 @@ export async function POST(request: NextRequest) {
     // تحديث بيانات المدرسة الأصلية فقط مع تسجيل التحديث في سجل التغييرات (AuditLog)
     const schoolChanges: Record<string, { from: unknown; to: unknown }> = {};
     const schoolUpdateData: Record<string, unknown> = {};
-    if (principalName && principalName !== school.principalName) {
+    const canUpdateSchool = !principal.isCoordinator || isMapSchoolSource(school.dataSource);
+    if (canUpdateSchool && principalName && principalName !== school.principalName) {
       schoolChanges.principalName = { from: school.principalName, to: principalName };
       schoolUpdateData.principalName = principalName;
     }
-    if (schoolPhone && schoolPhone !== school.phone) {
+    if (canUpdateSchool && schoolPhone && schoolPhone !== school.phone) {
       schoolChanges.phone = { from: school.phone, to: schoolPhone };
       schoolUpdateData.phone = schoolPhone;
     }
-    if (studentCount !== null && studentCount !== school.studentCount) {
+    if (canUpdateSchool && studentCount !== null && studentCount !== school.studentCount) {
       schoolChanges.studentCount = { from: school.studentCount, to: studentCount };
       schoolUpdateData.studentCount = studentCount;
     }
@@ -256,7 +259,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      if (principal.isCoordinator || contactType === "FIELD_VISIT") {
+      if (contactType === "FIELD_VISIT") {
         await tx.school.updateMany({
           where: { id: schoolId, OR: [{ lastVisitAt: null }, { lastVisitAt: { lt: created.createdAt } }] },
           data: { lastVisitAt: created.createdAt },

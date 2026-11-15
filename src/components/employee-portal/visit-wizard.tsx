@@ -57,6 +57,7 @@ interface SchoolRow {
   lng: number | null;
   studentCount: number | null;
   hasCoords: boolean;
+  lastVisitAt: string | null;
 }
 
 interface LocationState {
@@ -565,14 +566,16 @@ export function VisitWizard({
                         key={s.id}
                         type="button"
                         onClick={() => setSelected(s)}
-                        className="flex min-h-[52px] w-full items-center gap-2 rounded-[14px] border bg-white p-2.5 text-start active:bg-sky-50"
+                        className={`flex min-h-[52px] w-full items-center gap-2 rounded-[14px] border p-2.5 text-start active:bg-sky-50 ${s.lastVisitAt ? "border-emerald-200 bg-emerald-50/50" : "bg-white"}`}
                       >
-                        <MapPin className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
+                        {s.lastVisitAt ? <Check className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" /> : <MapPin className="h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-xs font-bold text-foreground">{s.name}</p>
                           <p className="truncate text-[10px] text-muted-foreground">{[s.regionName, s.governorate].filter(Boolean).join(" — ") || "—"}</p>
                         </div>
-                        {s.hasCoords && <span className="shrink-0 text-[9px] text-emerald-600">موقع محفوظ</span>}
+                        <span className="shrink-0 text-[9px] text-emerald-700">
+                          {s.lastVisitAt ? "تمّت الزيارة" : s.hasCoords ? "موقع محفوظ" : ""}
+                        </span>
                       </button>
                     ))
                   )}

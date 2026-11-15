@@ -10,8 +10,9 @@ export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
     const withOptions = sp.get("withOptions") === "1";
-    const result = await listSchools(parseSchoolFilters(sp));
-    const options = withOptions ? await schoolFilterOptions() : null;
+    const filters = parseSchoolFilters(sp);
+    const result = await listSchools(filters);
+    const options = withOptions ? await schoolFilterOptions(filters.researchOnly) : null;
     return NextResponse.json({ ...result, ...(options ? { options } : {}) });
   } catch (error) {
     console.error("خطأ في جلب قائمة المدارس:", error);

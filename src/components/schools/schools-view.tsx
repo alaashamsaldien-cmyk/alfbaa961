@@ -5,12 +5,14 @@
 // النتائج تُحدّث تلقائياً عند تغيير أي فلتر.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Table2, Map as MapIcon, Compass, FileSpreadsheet, UserRoundPlus, ExternalLink } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Table2, Map as MapIcon, Compass, FileSpreadsheet, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { GoogleSchoolsMap } from "./google-schools-map";
 import { GoogleSchoolsSearch } from "./google-schools-search";
+import { GovernorateCards } from "./governorate-cards";
 import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SchoolsFilters, EMPTY_FILTERS, type FiltersState } from "./schools-filters";
@@ -27,12 +29,18 @@ import {
   type CoordinatorDTO,
 } from "@/lib/types";
 
+const MapSchoolsCatalog = dynamic(() => import("./map-schools-catalog"), {
+  loading: () => <p className="text-sm text-muted-foreground">جارٍ تحميل مدارس الخريطة…</p>,
+});
+
 export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotification?: () => void }) {
   const { toast } = useToast();
   const [googleOpen, setGoogleOpen] = useState(false);
   const [filters, setFilters] = useState<FiltersState>(EMPTY_FILTERS);
   const [data, setData] = useState<SchoolsListResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [catalog, setCatalog] = useState<"schools" | "map-schools">("schools");
+  const [mapRevision, setMapRevision] = useState(0);
   const [view, setView] = useState<"table" | "map">("table");
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -64,6 +72,7 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
       sp.set("pageSize", String(pageSize));
       if (view === "map") sp.set("onlyMap", "1");
       sp.set("schoolCoverage", "1");
+      sp.set("catalog", "research");
       return sp.toString();
     },
     [filters, view]
@@ -92,21 +101,23 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
 
   // تحديث تلقائي عند تغيير الفلاتر أو العرض
   useEffect(() => {
+    if (catalog !== "schools") return;
     const controller = new AbortController();
     const t = setTimeout(() => {
       setPage(1);
       load(1, false, controller.signal);
     }, 250);
     return () => { clearTimeout(t); controller.abort(); };
-  }, [load]);
+  }, [catalog, load]);
 
   useEffect(() => {
+    if (catalog !== "schools") return;
     const controller = new AbortController();
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") load(page, true, controller.signal);
     }, 30_000);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [load, page, view]);
+  }, [catalog, load, page, view]);
 
   const loadCoordinators = useCallback(async () => {
     try {
@@ -150,6 +161,17 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
     setAssignOpen(true);
   };
 
+  const openMapSchool = async (id: string) => {
+    try {
+      const response = await fetch(`/api/schools/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setEditSchool(result.school);
+    } catch (error) {
+      toast({ title: "تعذر فتح تفاصيل المدرسة", description: error instanceof Error ? error.message : undefined, variant: "destructive" });
+    }
+  };
+
   const mapMarkers = useMemo(() => {
     const schools = (data?.schools ?? []).filter((school) => school.hasCoords);
     if (locateTarget?.hasCoords && !schools.some(({ id }) => id === locateTarget.id)) schools.push(locateTarget);
@@ -170,12 +192,19 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
 
   return (
     <div className="space-y-4">
+      <Tabs value={catalog} onValueChange={(value) => setCatalog(value === "map-schools" ? "map-schools" : "schools")}>
+        <TabsList aria-label="قوائم المدارس">
+          <TabsTrigger value="schools">المدارس</TabsTrigger>
+          <TabsTrigger value="map-schools">مدارس الخريطة</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {catalog === "map-schools" ? <MapSchoolsCatalog revision={mapRevision} onAssign={(id, name) => openAssign([id], [name])} onEdit={openMapSchool} /> : <>
       {/* رأس القسم */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-lg font-extrabold text-foreground">إدارة المدارس</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {data ? `${data.total} مدرسة مسجلة في النظام` : "جارٍ التحميل..."} — تظهر جميع المدارس افتراضياً وتُصفّى بالفلاتر.
+            {data ? `${data.total} مدرسة في النتائج` : "جارٍ التحميل..."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -203,16 +232,21 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
         </div>
       </div>
 
-      {googleOpen && (
-        <GoogleSchoolsSearch key={filters.governorate} governorate={filters.governorate}
-          onAssign={(id, name) => openAssign([id], [name])} />
-      )}
+      <GovernorateCards
+        counts={data?.options?.governorateCounts}
+        selected={filters.governorate}
+        missing={data?.options?.governorateCounts ? "0 مدرسة" : "—"}
+        onSelect={(governorate) => {
+          setLocateTarget(null);
+          setSelectedIds(new Set());
+          setView("table");
+          setFilters({ ...EMPTY_FILTERS, governorate });
+        }}
+      />
+
+      {googleOpen && <GoogleSchoolsSearch key={filters.governorate} governorate={filters.governorate} />}
       <SchoolsFilters filters={filters} onChange={(next) => { setLocateTarget(null); setSelectedIds(new Set()); setFilters(next); }} options={data?.options ? { ...data.options, governorates: SCHOOL_GOVERNORATES.map(({ name }) => name) } : null} resultCount={data?.total ?? 0} />
 
-      <Button type="button" variant="outline" disabled={!selectedIds.size}
-        onClick={() => openAssign([...selectedIds], (data?.schools ?? []).filter(({ id }) => selectedIds.has(id)).map(({ name }) => name))}>
-        <UserRoundPlus className="h-4 w-4" />تنسيب المدارس المحددة{selectedIds.size ? ` (${selectedIds.size})` : ""}
-      </Button>
 
       <Tabs value={view} onValueChange={(v) => { setLocateTarget(null); setView(v as "table" | "map"); }}>
         <TabsList>
@@ -234,7 +268,6 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
               setView("map");
               setLocateTarget(s);
             }}
-            onAssign={(s) => openAssign([s.id], [s.name])}
           />
 
           {/* ترقيم الصفحات */}
@@ -282,7 +315,6 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
                 {focusedSchool.mapsUrl && <Button asChild variant="outline" size="sm">
                   <a href={focusedSchool.mapsUrl} target="_blank" rel="noreferrer"><ExternalLink />معاينة في Google Maps</a>
                 </Button>}
-                <Button variant="outline" size="sm" onClick={() => openAssign([focusedSchool.id], [focusedSchool.name])}>تنسيب</Button>
                 <Button variant="ghost" size="sm" onClick={() => setLocateTarget(null)}>إلغاء التركيز</Button>
               </div>
             </div>
@@ -291,14 +323,23 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
       )}
 
       {/* النوافذ */}
+      <ExcelDialog
+        open={excelOpen}
+        onOpenChange={setExcelOpen}
+        exportQuery={exportQuery}
+        onImported={refresh}
+      />
+      </>}
       <SchoolEditDialog
         school={editSchool}
         open={Boolean(editSchool)}
-        onOpenChange={(o) => !o && setEditSchool(null)}
+        onOpenChange={(open) => !open && setEditSchool(null)}
         regions={data?.options?.regions ?? []}
-        onSaved={refresh}
+        onSaved={() => {
+          if (catalog === "schools") refresh();
+          else setMapRevision((value) => value + 1);
+        }}
       />
-
       <AssignDialog
         open={assignOpen}
         onOpenChange={setAssignOpen}
@@ -307,16 +348,10 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
         coordinators={coordinators}
         onDone={() => {
           setSelectedIds(new Set());
-          refresh();
+          if (catalog === "schools") refresh();
+          else setMapRevision((value) => value + 1);
           onOpenChangeNotification?.();
         }}
-      />
-
-      <ExcelDialog
-        open={excelOpen}
-        onOpenChange={setExcelOpen}
-        exportQuery={exportQuery}
-        onImported={refresh}
       />
 
     </div>

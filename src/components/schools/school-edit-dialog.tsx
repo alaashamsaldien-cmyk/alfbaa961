@@ -272,8 +272,9 @@ export function SchoolEditDialog({ school, open, onOpenChange, regions, onSaved 
                 <Input value={form.lng} onChange={(e) => set("lng", e.target.value)} dir="ltr" inputMode="decimal" />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="text-xs">ملاحظات</Label>
-                <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={2} />
+                <Label htmlFor="school-research-notes" className="text-xs">بحث الإدارة وملاحظاتها</Label>
+                <Textarea id="school-research-notes" value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3}
+                  placeholder="العروض والأسعار، رابط المنشور أو مصدر المعلومة وتاريخ التحقق" />
               </div>
             </div>
 

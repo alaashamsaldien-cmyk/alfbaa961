@@ -3,7 +3,8 @@
 // وخريطة صلاحياته ومن نطاق عمله (المحافظة/المنطقة) — بلا أي بيانات وهمية.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireFieldAccount, getFieldPermissions, fieldVisitOwner } from "@/lib/field-account";
+import { requireFieldAccount, getFieldPermissions, fieldVisitOwner, getFieldSchoolScope } from "@/lib/field-account";
+import { approvedMapSchoolWhere } from "@/lib/map-school-scope";
 import { getBaghdadStartOfDay, getBaghdadDaysAgoStart, getBaghdadEndOfDay } from "@/lib/time";
 
 export async function GET() {
@@ -14,12 +15,13 @@ export async function GET() {
     const { userId } = account;
     if (account.isCoordinator) {
       const now = new Date();
-      const owner = fieldVisitOwner(account);
+      const owner = { ...fieldVisitOwner(account), school: approvedMapSchoolWhere };
+      const scope = await getFieldSchoolScope(account);
       const [permissions, schoolsCount, regions, visitsToday, visitsWeek, visitsTotal, pendingFollowups] = await Promise.all([
         getFieldPermissions(account),
-        db.school.count({ where: { coordinatorId: userId } }),
+        db.school.count({ where: scope }),
         db.school.findMany({
-          where: { coordinatorId: userId },
+          where: scope,
           distinct: ["regionId", "regionText", "governorate"],
           select: { region: { select: { name: true } }, regionText: true, governorate: true },
         }),

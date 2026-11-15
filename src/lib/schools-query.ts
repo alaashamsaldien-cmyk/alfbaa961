@@ -3,8 +3,10 @@ import { db } from "@/lib/db";
 import { isInsideIraq } from "@/lib/geo/iraq";
 import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
 import { computeDataQuality } from "@/lib/geo/normalize";
+import { researchSchoolWhere } from "@/lib/map-school-scope";
 
 export interface SchoolFilters {
+  researchOnly?: boolean;
   q?: string;
   governorate?: string;
   regionId?: string;
@@ -35,6 +37,7 @@ export function parseSchoolFilters(sp: URLSearchParams): SchoolFilters {
   const sort: "name" | "createdAt" | "dataQuality" =
     sortRaw === "name" || sortRaw === "dataQuality" ? sortRaw : "createdAt";
   return {
+    researchOnly: sp.get("catalog") === "research",
     q: sp.get("q")?.trim() || undefined,
     governorate: sp.get("governorate")?.trim() || undefined,
     regionId: sp.get("regionId")?.trim() || undefined,
@@ -60,6 +63,7 @@ export function parseSchoolFilters(sp: URLSearchParams): SchoolFilters {
 export function schoolWhere(filters: SchoolFilters): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   const and: Record<string, unknown>[] = [];
+  if (filters.researchOnly) and.push(researchSchoolWhere);
 
   if (filters.q) {
     and.push({
@@ -275,15 +279,20 @@ export async function listSchools(filters: SchoolFilters) {
 }
 
 /** خيارات الفلاتر الفعلية من قاعدة البيانات (لعرضها في الواجهة) */
-export async function schoolFilterOptions() {
+export async function schoolFilterOptions(researchOnly = false) {
   const [governorates, institutionTypes, regions, coordinators] = await Promise.all([
-    db.school.findMany({ where: { governorate: { not: null } }, distinct: ["governorate"], select: { governorate: true } }),
+    db.school.groupBy({ by: ["governorate"], where: {
+      governorate: { not: null }, ...(researchOnly ? { AND: [researchSchoolWhere] } : {}),
+    }, _count: { _all: true } }),
     db.school.findMany({ where: { institutionType: { not: null } }, distinct: ["institutionType"], select: { institutionType: true } }),
     db.region.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true, governorate: true } }),
     db.coordinator.findMany({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
   return {
     governorates: governorates.map((g) => g.governorate as string).sort((a, b) => a.localeCompare(b, "ar")),
+    governorateCounts: Object.fromEntries(
+      governorates.flatMap((row) => row.governorate ? [[row.governorate, row._count._all]] : []),
+    ),
     institutionTypes: institutionTypes.map((t) => t.institutionType as string).sort((a, b) => a.localeCompare(b, "ar")),
     regions,
     coordinators,

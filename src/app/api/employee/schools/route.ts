@@ -4,7 +4,7 @@
 // POST إضافة مدرسة يدوياً يتطلب schools.create — تُسجل بمصدر MANUAL_ENTRY وتُدقق جغرافياً.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope } from "@/lib/field-account";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, coordinatorSchoolContact } from "@/lib/field-account";
 import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { computeDataQuality } from "@/lib/geo/normalize";
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     if (q) {
       where.OR = [
         { name: { contains: q } },
-        { address: { contains: q } },
+        ...(!principal.isCoordinator ? [{ address: { contains: q } }] : []),
         { regionText: { contains: q } },
         { region: { is: { name: { contains: q } } } },
       ];
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
           institutionType: true, stage: true, principalName: true, phone: true,
           address: true, lat: true, lng: true, studentCount: true,
           availabilityStatus: true, contractStatus: true, lastVisitAt: true,
-          discoveryStatus: true, dataQuality: true,
+          discoveryStatus: true, dataQuality: true, dataSource: true,
         },
       }),
       mapView ? db.school.count({ where: mapWhere as never }) : undefined,
@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       mappedTotal,
       schools: schools.map((s) => ({
         ...s,
+        ...(principal.isCoordinator ? coordinatorSchoolContact(s) : {}),
         regionName: s.region?.name ?? s.regionText ?? null,
         hasCoords: s.lat !== null && s.lng !== null,
         lastVisitAt: s.lastVisitAt?.toISOString() ?? null,

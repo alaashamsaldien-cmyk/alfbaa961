@@ -33,12 +33,14 @@ export const SECTOR_LABELS: Record<string, string> = {
 
 /** حالات التوثيق — كما حددها المستخدم */
 export type VerificationStatus =
+  | "MAP_APPROVED"
   | "DISCOVERED"
   | "NEEDS_VERIFICATION"
   | "OFFICIALLY_DOCUMENTED"
   | "FIELD_CONFIRMED";
 
 export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, string> = {
+  MAP_APPROVED: "موقع معتمد من الإدارة",
   DISCOVERED: "مكتشفة",
   NEEDS_VERIFICATION: "تحتاج إلى تحقق",
   OFFICIALLY_DOCUMENTED: "موثقة من مصدر رسمي",
@@ -46,6 +48,7 @@ export const VERIFICATION_STATUS_LABELS: Record<VerificationStatus, string> = {
 };
 
 export const VERIFICATION_STATUS_BADGE: Record<VerificationStatus, string> = {
+  MAP_APPROVED: "bg-emerald-50 text-emerald-700 border-emerald-200",
   DISCOVERED: "bg-slate-100 text-slate-700 border-slate-200",
   NEEDS_VERIFICATION: "bg-amber-50 text-amber-700 border-amber-200",
   OFFICIALLY_DOCUMENTED: "bg-emerald-50 text-emerald-700 border-emerald-200",

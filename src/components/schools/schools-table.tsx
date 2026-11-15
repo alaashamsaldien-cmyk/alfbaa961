@@ -25,7 +25,7 @@ interface Props {
   onToggleAll: (checked: boolean) => void;
   onEdit: (s: SchoolDTO) => void;
   onLocate: (s: SchoolDTO) => void;
-  onAssign: (s: SchoolDTO) => void;
+  onAssign?: (s: SchoolDTO) => void;
 }
 
 function fmtDate(iso: string | null): string {
@@ -88,7 +88,7 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
           </TableHeader>
           <TableBody>
             {schools.map((s) => (
-              <TableRow key={s.id} className="hover:bg-slate-50/70">
+              <TableRow key={s.id} className={s.lastVisitAt ? "bg-emerald-50/50 hover:bg-emerald-50" : "hover:bg-slate-50/70"}>
                 <TableCell>
                   <Checkbox
                     aria-label={`تحديد ${s.name}`}
@@ -153,7 +153,7 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
                     >
                       <Pencil className="h-4 w-4 text-slate-600" aria-hidden="true" />
                     </Button>
-                    <Button
+                    {onAssign && <Button
                       type="button"
                       size="icon"
                       variant="ghost"
@@ -162,7 +162,7 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
                       title="تخصيص لمنسقة"
                     >
                       <UserRoundPlus className="h-4 w-4 text-slate-600" aria-hidden="true" />
-                    </Button>
+                    </Button>}
                     {s.mapsUrl && (
                       <a
                         href={s.mapsUrl}

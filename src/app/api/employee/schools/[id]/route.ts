@@ -4,7 +4,7 @@
 //        مسموح لمن يملك صلاحية تسجيل زيارة أو تعديل المدارس — وكل تحديث يُسجل في سجل التغييرات.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, fieldVisitOwner } from "@/lib/field-account";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, fieldVisitOwner, coordinatorSchoolContact } from "@/lib/field-account";
 import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { isInsideIraq } from "@/lib/geo/iraq";
@@ -41,8 +41,13 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
     return NextResponse.json({
       school: {
-        ...school,
-        osmId: school.osmId === null ? null : Number(school.osmId),
+        id: school.id, name: school.name, governorate: school.governorate,
+        institutionType: school.institutionType, lat: school.lat, lng: school.lng,
+        availabilityStatus: school.availabilityStatus, contractStatus: school.contractStatus,
+        ...(principal.isCoordinator ? coordinatorSchoolContact(school) : {
+          address: school.address, phone: school.phone, principalName: school.principalName,
+          studentCount: school.studentCount, stage: school.stage,
+        }),
         regionName: school.region?.name ?? school.regionText ?? null,
         hasCoords: school.lat !== null && school.lng !== null,
         lastVisitAt: school.lastVisitAt?.toISOString() ?? null,

@@ -17,7 +17,7 @@ type Result = DiscoveredPlace & {
 
 export function GoogleSchoolsSearch({ governorate, onAssign }: {
   governorate: string;
-  onAssign: (id: string, name: string) => void;
+  onAssign?: (id: string, name: string) => void;
 }) {
   const [q, setQuery] = useState("");
   const [type, setType] = useState("school");
@@ -83,7 +83,7 @@ export function GoogleSchoolsSearch({ governorate, onAssign }: {
               }
             }}>{copiedPlaceId === place.placeId ? "نُسخ المعرّف" : "نسخ معرّف Google للاستيراد من Excel"}</Button>
           )}
-          {place.school && <Button size="sm" variant="outline" onClick={() => { if (place.school) onAssign(place.school.id, place.name ?? ""); }}><UserRoundPlus />تنسيب</Button>}
+          {place.school && onAssign && <Button size="sm" variant="outline" onClick={() => { if (place.school) onAssign(place.school.id, place.name ?? ""); }}><UserRoundPlus />تنسيب</Button>}
         </div>
       </article>
     );

@@ -3,6 +3,7 @@
 // كل تعديل يُسجل في قاعدة البيانات المركزية ويظهر في لوحة الإدارة فوراً
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { approvedMapSchoolWhere } from "@/lib/map-school-scope";
 import { getPrincipal } from "@/lib/auth";
 import { mapSchool } from "@/lib/schools-query";
 import { mergeFieldMeta, computeDataQuality, type FieldMeta } from "@/lib/geo/normalize";
@@ -21,7 +22,7 @@ const FIELD_LABELS_AR: Record<string, string> = {
 
 /** التحقق الحرج من الصلاحية: المدرسة يجب أن تكون مخصصة لهذه المنسقة */
 async function assertAssigned(schoolId: string, coordinatorId: string) {
-  const school = await db.school.findUnique({ where: { id: schoolId } });
+  const school = await db.school.findFirst({ where: { id: schoolId, coordinatorId, AND: [approvedMapSchoolWhere] } });
   if (!school) return { school: null, error: "المدرسة غير موجودة." as const };
   if (school.coordinatorId !== coordinatorId) {
     return { school: null, error: "هذه المدرسة غير مخصصة لهذه المنسقة — التعديل مرفوض." as const };

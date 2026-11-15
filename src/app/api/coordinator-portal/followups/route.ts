@@ -3,6 +3,7 @@
 // PATCH: إنجاز أو إلغاء مراجعة مخصصة لها فقط (حماية مزدوجة بالمعرف والجلسة)
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { approvedMapSchoolWhere } from "@/lib/map-school-scope";
 import { getPrincipal } from "@/lib/auth";
 import { getBaghdadStartOfDay } from "@/lib/time";
 
@@ -14,7 +15,7 @@ export async function GET() {
     }
 
     const followUps = await db.followUp.findMany({
-      where: { coordinatorId: principal.coordinatorId },
+      where: { coordinatorId: principal.coordinatorId, school: approvedMapSchoolWhere },
       orderBy: { dueDate: "asc" },
       take: 60,
       include: { school: { select: { name: true } } },
@@ -53,8 +54,8 @@ export async function PATCH(request: NextRequest) {
     if (!id) return NextResponse.json({ error: "معرف المراجعة مطلوب." }, { status: 400 });
 
     // يجب أن تكون المراجعة مخصصة لهذه المنسقة حصراً
-    const followUp = await db.followUp.findUnique({
-      where: { id },
+    const followUp = await db.followUp.findFirst({
+      where: { id, coordinatorId: principal.coordinatorId, school: approvedMapSchoolWhere },
       include: { school: { select: { name: true } } },
     });
     if (!followUp) return NextResponse.json({ error: "المراجعة غير موجودة." }, { status: 404 });
