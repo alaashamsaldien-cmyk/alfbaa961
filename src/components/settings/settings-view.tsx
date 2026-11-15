@@ -5,13 +5,12 @@
 // كل ما يظهر هنا حقيقي: حسابات فعلية من القاعدة، حالة مزودات الاكتشاف، وأعداد قاعدة البيانات
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, KeyRound, ShieldOff, LogOut, Database, ShieldCheck, UserRoundCog, UsersRound } from "lucide-react";
+import { Plus, RefreshCw, KeyRound, ShieldOff, LogOut, Database, ShieldCheck, UserRoundCog, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmployeesView } from "@/components/employees/employees-view";
 import { CoordinatorsView } from "@/components/coordinators/coordinators-view";
@@ -46,13 +45,13 @@ const ROLE_LABELS: Record<string, string> = {
   STAFF: "موظف إداري",
 };
 
-export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" }: { onLogout?: () => void; onOpenPortal: () => void; defaultTab?: string }) {
+export function SettingsView({ onLogout }: { onLogout?: () => void }) {
   const { toast } = useToast();
   const [users, setUsers] = useState<UserItem[] | null>(null);
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", username: "", password: "", role: "STAFF" });
+  const [form, setForm] = useState({ name: "", email: "", username: "", password: "" });
   const [pwTarget, setPwTarget] = useState<UserItem | null>(null);
   const [pwForm, setPwForm] = useState({ password: "" });
   // كلمة مروري
@@ -68,7 +67,7 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
       const u = await uRes.json();
       const cfg = await cfgRes.json();
       if (!uRes.ok) throw new Error(u?.error);
-      setUsers(u.users);
+      setUsers((u.users as UserItem[]).filter((user) => user.role === "ADMIN"));
       if (cfgRes.ok) setSystem(cfg);
     } catch {
       setUsers([]);
@@ -94,34 +93,18 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
       const res = await fetch("/api/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, role: "ADMIN" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error ?? "تعذر الإنشاء");
       toast({ title: "أُنشئ الحساب", description: "يمكن للمستخدم تسجيل الدخول باسم المستخدم وكلمة المرور." });
       setAddOpen(false);
-      setForm({ name: "", email: "", username: "", password: "", role: "STAFF" });
+      setForm({ name: "", email: "", username: "", password: "" });
       load();
     } catch (e) {
       toast({ title: "تعذر الإنشاء", description: e instanceof Error ? e.message : "", variant: "destructive" });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const changeRole = async (u: UserItem, role: string) => {
-    try {
-      const res = await fetch(`/api/users/${u.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error ?? "تعذر التعديل");
-      toast({ title: "حُدّث الدور" });
-      load();
-    } catch (e) {
-      toast({ title: "تعذر التعديل", description: e instanceof Error ? e.message : "", variant: "destructive" });
     }
   };
 
@@ -212,7 +195,7 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
         <div>
           <p className="text-lg font-extrabold text-foreground">الإعدادات والصلاحيات</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            حسابات المستخدمين وحسابات المنسقات وكلمات المرور ومعلومات النظام — كل شيء حقيقي من القاعدة.
+            إدارة حسابات الموبايل وحسابات الإدارة وكلمات المرور ومعلومات النظام.
           </p>
         </div>
         <Button type="button" variant="outline" onClick={load} className="gap-2">
@@ -221,11 +204,10 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
         </Button>
       </div>
 
-      <Tabs defaultValue={defaultTab} className="space-y-4">
+      <Tabs defaultValue="mobile" className="space-y-4">
         <TabsList className="h-auto flex-wrap">
-          <TabsTrigger value="employees">الموظفون والصلاحيات</TabsTrigger>
-          <TabsTrigger value="users" className="gap-1.5"><UserRoundCog className="h-4 w-4" aria-hidden="true" />حسابات المستخدمين</TabsTrigger>
-          <TabsTrigger value="coordinators" className="gap-1.5"><UsersRound className="h-4 w-4" aria-hidden="true" />حسابات المنسقات</TabsTrigger>
+          <TabsTrigger value="mobile" className="gap-1.5"><Smartphone className="h-4 w-4" aria-hidden="true" />موبايل</TabsTrigger>
+          <TabsTrigger value="users" className="gap-1.5"><UserRoundCog className="h-4 w-4" aria-hidden="true" />حسابات الإدارة</TabsTrigger>
           <TabsTrigger value="password" className="gap-1.5"><KeyRound className="h-4 w-4" aria-hidden="true" />كلمة مروري</TabsTrigger>
           <TabsTrigger value="system" className="gap-1.5"><Database className="h-4 w-4" aria-hidden="true" />معلومات النظام</TabsTrigger>
         </TabsList>
@@ -238,7 +220,7 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
             </p>
             <Button type="button" onClick={() => setAddOpen(true)} className="gap-2" size="sm">
               <Plus className="h-4 w-4" aria-hidden="true" />
-              حساب مستخدم جديد
+              حساب مدير جديد
             </Button>
           </div>
 
@@ -275,16 +257,7 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
                           )}
                         </td>
                         <td className="px-4 py-2.5">
-                          <Select value={u.role} onValueChange={(v) => changeRole(u, v)}>
-                            <SelectTrigger className="h-8 w-[130px] text-xs" aria-label={`دور ${u.name ?? u.email}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(ROLE_LABELS).map(([k, v]) => (
-                                <SelectItem key={k} value={k}>{v}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {ROLE_LABELS[u.role]}
                         </td>
                         <td className="px-4 py-2.5 text-xs text-muted-foreground" suppressHydrationWarning>
                           {u.lastLoginAt ? formatShortDate(u.lastLoginAt) : "لم يسجل بعد"}
@@ -337,11 +310,18 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
           )}
         </TabsContent>
 
-        <TabsContent value="employees"><EmployeesView /></TabsContent>
-
-        {/* —— حسابات المنسقات —— */}
-        <TabsContent value="coordinators" className="space-y-3">
-          <CoordinatorsView onOpenPortal={onOpenPortal} />
+        <TabsContent value="mobile" className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            أنشئ حسابات الموظفين والمنسّقين واضبط صلاحياتهم هنا. بعد تسجيل الدخول من الموبايل، تظهر لكل حساب أقسامه المسموحة في نفس الواجهة.
+          </p>
+          <Tabs defaultValue="employees" className="space-y-3">
+            <TabsList aria-label="حسابات الموبايل" className="h-auto flex-wrap">
+              <TabsTrigger value="employees">الموظفون والصلاحيات</TabsTrigger>
+              <TabsTrigger value="coordinators">حسابات المنسّقين</TabsTrigger>
+            </TabsList>
+            <TabsContent value="employees"><EmployeesView /></TabsContent>
+            <TabsContent value="coordinators"><CoordinatorsView /></TabsContent>
+          </Tabs>
         </TabsContent>
 
         {/* —— كلمة مروري —— */}
@@ -469,18 +449,6 @@ export function SettingsView({ onLogout, onOpenPortal, defaultTab = "employees" 
             <div className="space-y-1.5">
               <Label className="text-xs">كلمة المرور * (6 أحرف على الأقل)</Label>
               <Input dir="ltr" type="password" autoComplete="new-password" className="text-start" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">الدور</Label>
-              <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ADMIN">مدير النظام</SelectItem>
-                  <SelectItem value="MANAGER">مدير إداري</SelectItem>
-                  <SelectItem value="STAFF">موظف إداري</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">حسابات المنسقات الميدانيات تُنشأ من قسم المنسقات — هذا القسم لحسابات الإدارة فقط.</p>
             </div>
           </div>
           <DialogFooter>

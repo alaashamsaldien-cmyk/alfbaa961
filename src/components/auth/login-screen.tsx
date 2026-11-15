@@ -64,7 +64,7 @@ export function LoginScreen({ needsSetup, onAuthenticated }: LoginScreenProps) {
   };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[#f3f4f6] p-4" dir="rtl">
+    <div className="flex min-h-dvh items-center justify-center bg-background p-4" dir="rtl">
       <div className="w-full max-w-md">
         {/* الترويسة بهوية القائمة الجانبية */}
         <div className="overflow-hidden rounded-t-2xl bg-sidebar px-6 py-7 text-center">

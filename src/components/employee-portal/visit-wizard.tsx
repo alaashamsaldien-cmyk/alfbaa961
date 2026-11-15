@@ -10,7 +10,6 @@ import dynamic from "next/dynamic";
 import type { MapMarker } from "@/components/schools/base-map";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Phone, MessageCircle, MessageSquare, UsersRound, Ellipsis,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -69,12 +68,11 @@ interface LocationState {
 }
 
 const CONTACT_TYPES = [
-  { value: "FIELD_VISIT", label: "زيارة ميدانية", icon: MapPin },
-  { value: "PHONE", label: "اتصال هاتفي", icon: Phone },
-  { value: "WHATSAPP", label: "واتساب", icon: MessageCircle },
-  { value: "SMS", label: "رسالة SMS", icon: MessageSquare },
-  { value: "MEETING", label: "اجتماع ومتابعة", icon: UsersRound },
-  { value: "OTHER", label: "أخرى", icon: Ellipsis },
+  { value: "FIELD_VISIT", label: "زيارة ميدانية" },
+  { value: "PHONE", label: "اتصال هاتفي" },
+  { value: "WHATSAPP", label: "واتساب" },
+  { value: "SMS", label: "رسالة SMS" },
+  { value: "MEETING", label: "اجتماع متابعة" },
 ];
 
 const RESULTS = [
@@ -132,7 +130,7 @@ export function VisitWizard({
   // بيانات الخطوات
   const [contactType, setContactType] = useState("");
   const [contactOther, setContactOther] = useState("");
-  const [hasFollowUp, setHasFollowUp] = useState("no");
+  const [showOtherContact, setShowOtherContact] = useState(false);
   const [result, setResult] = useState("");
   const [resultOther, setResultOther] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
@@ -143,6 +141,7 @@ export function VisitWizard({
   const [notes, setNotes] = useState("");
 
   const dedupeRef = useRef<string>("");
+  const validationToast = useRef<ReturnType<typeof toast> | null>(null);
   const canCreateSchools = Boolean(perms.schools?.create);
 
   // قائمة المدارس — ضمن نطاق الموظف من الخادم
@@ -337,8 +336,6 @@ export function VisitWizard({
       case "needs":
         if (needs.includes("OTHER") && !needsOther.trim()) return "شرح الاحتياج الآخر إلزامي عند اختيار «أخرى»";
         return null;
-      case "followup":
-        return hasFollowUp === "yes" && !followUp.nextDate ? "حدد تاريخ المتابعة" : null;
       default:
         return null;
     }
@@ -347,14 +344,16 @@ export function VisitWizard({
   const next = () => {
     const err = validateCurrentStep();
     if (err) {
-      toast({ title: err, variant: "destructive" });
+      validationToast.current = toast({ title: err, variant: "destructive" });
       return;
     }
+    validationToast.current?.dismiss();
     setStep((s) => Math.min(s + 1, steps.length - 1));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const prev = () => {
+    validationToast.current?.dismiss();
     setStep((s) => Math.max(s - 1, 0));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -384,7 +383,7 @@ export function VisitWizard({
       needs,
       needsOther: needs.includes("OTHER") ? needsOther.trim() : undefined,
       subscribersCount: followUp.subscribers ? Number(followUp.subscribers) : undefined,
-      nextFollowUpAt: hasFollowUp === "yes" ? followUp.nextDate : undefined,
+      nextFollowUpAt: followUp.nextDate || undefined,
       notes: notes.trim() || undefined,
       lat: location.lat,
       lng: location.lng,
@@ -448,7 +447,7 @@ export function VisitWizard({
         </p>
         {done === "registered" && (
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            سُجّلت الزيارة باسمك وارتبطت بالمدرسة والتاريخ والوقت والإحداثيات. يمكنك مراجعتها في «الزيارات والتواصل».
+            سُجّلت الزيارة في قاعدة البيانات المركزية باسمك وارتبطت بالمدرسة والتاريخ والوقت والإحداثيات — وظهرت فوراً في لوحة الإدارة.
           </p>
         )}
         <Button
@@ -462,7 +461,7 @@ export function VisitWizard({
             setLocation(null);
             setContactType("");
             setContactOther("");
-            setHasFollowUp("no");
+            setShowOtherContact(false);
             setResult("");
             setResultOther("");
             setRejectionReason("");
@@ -487,8 +486,6 @@ export function VisitWizard({
       </div>
     );
   }
-
-  const stepTitle = steps[step];
 
   return (
     <div className="space-y-3" dir="rtl">
@@ -641,7 +638,7 @@ export function VisitWizard({
                               id: "picked",
                               lat: location.lat,
                               lng: location.lng,
-                              color: "green",
+                              color: location.confirmed ? "green" : "sky",
                               draggable: true,
                               title: "موقع المدرسة",
                             } satisfies MapMarker]
@@ -710,11 +707,10 @@ export function VisitWizard({
           <div className="space-y-3">
             <p className="text-sm font-bold text-foreground">نوع التواصل — اختر نوعاً واحداً</p>
             <RadioGroup value={contactType} onValueChange={setContactType} className="gap-2">
-              {CONTACT_TYPES.map((c) => (
+              {(showOtherContact ? [...CONTACT_TYPES, { value: "OTHER", label: "أخرى" }] : CONTACT_TYPES).map((c) => (
                 <label key={c.value} className="flex min-h-[52px] cursor-pointer flex-row-reverse items-center gap-3 rounded-[14px] border px-4 py-3 text-sm has-[[data-state=checked]]:border-sky-400 has-[[data-state=checked]]:bg-sky-50">
                   <RadioGroupItem value={c.value} aria-label={c.label} />
                   {c.label}
-                  <c.icon className="ms-auto size-4 text-sky-600" aria-hidden="true" />
                 </label>
               ))}
             </RadioGroup>
@@ -854,18 +850,14 @@ export function VisitWizard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">موعد المتابعة القادم</Label>
-              <RadioGroup aria-label="هل يوجد موعد متابعة؟" value={hasFollowUp} onValueChange={setHasFollowUp} className="flex gap-5">
-                <label className="flex items-center gap-2"><RadioGroupItem value="yes" />يوجد</label>
-                <label className="flex items-center gap-2"><RadioGroupItem value="no" />لا يوجد</label>
-              </RadioGroup>
-              {hasFollowUp === "yes" && <Input aria-label="تاريخ المتابعة"
+              <Label htmlFor="visit-follow-up" className="text-xs">موعد المتابعة القادم</Label>
+              <Input id="visit-follow-up"
                 type="date"
                 dir="ltr"
                 className="text-start"
                 value={followUp.nextDate}
                 onChange={(e) => setFollowUp((f) => ({ ...f, nextDate: e.target.value }))}
-              />}
+              />
             </div>
           </div>
         )}
@@ -889,7 +881,7 @@ export function VisitWizard({
               {contactPerson.students && <SummaryRow label="عدد الطلاب" value={contactPerson.students} />}
               {needs.length > 0 && <SummaryRow label="الاحتياجات" value={needs.map((n) => NEEDS_LABELS[n]).join("، ") + (needs.includes("OTHER") && needsOther ? ` — ${needsOther}` : "")} />}
               {followUp.subscribers && <SummaryRow label="المشتركون بالمنصة" value={followUp.subscribers} />}
-              <SummaryRow label="المتابعة القادمة" value={hasFollowUp === "yes" ? followUp.nextDate : "لا يوجد"} />
+              {followUp.nextDate && <SummaryRow label="المتابعة القادمة" value={followUp.nextDate} />}
               {notes && <SummaryRow label="ملاحظات" value={notes} />}
             </div>
             {pendingQueue.length > 0 && (
@@ -901,7 +893,7 @@ export function VisitWizard({
         )}
 
         {/* أزرار التنقل */}
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex items-stretch gap-2">
           {step > 0 && (
             <Button type="button" variant="outline" className="flex-1 gap-1.5" onClick={prev} disabled={sending}>
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
@@ -914,13 +906,19 @@ export function VisitWizard({
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : (
-            <Button type="button" className="h-auto min-h-9 flex-1 gap-1.5 whitespace-normal" onClick={submit} disabled={sending}>
+            <Button type="button" className="h-auto min-h-9 flex-[1.12] gap-1.5 px-2 whitespace-normal has-[>svg]:px-2" onClick={submit} disabled={sending}>
               {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
               {sending ? "جارٍ الإرسال..." : "إرسال وتسجيل الزيارة"}
             </Button>
           )}
         </div>
       </div>
+
+      {currentStep === "contact" && !showOtherContact && (
+        <button type="button" className="min-h-9 text-xs font-semibold text-sky-700" onClick={() => setShowOtherContact(true)}>
+          إضافة نوع تواصل آخر
+        </button>
+      )}
 
       {/* إضافة مدرسة جديدة يدوياً من داخل النموذج */}
       <Dialog open={addSchoolOpen} onOpenChange={setAddSchoolOpen}>

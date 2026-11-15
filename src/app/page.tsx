@@ -14,7 +14,6 @@ import { DesktopSidebar, MobileSidebar } from "@/components/dashboard/sidebar";
 import { TopBar, type TopBarUser } from "@/components/dashboard/topbar";
 import { DashboardSection } from "@/components/dashboard/dashboard-section";
 import { SchoolsView } from "@/components/schools/schools-view";
-import { CoordinatorPortalView } from "@/components/coordinator-portal/portal-view";
 import { RegionsView } from "@/components/regions/regions-view";
 import { DistributionView } from "@/components/distribution/distribution-view";
 import { VisitsView } from "@/components/visits/visits-view";
@@ -29,14 +28,11 @@ type Section =
   | "dashboard"
   | "schools"
   | "regions"
-  | "coordinators"
-  | "employees"
   | "distribution"
   | "visits"
   | "reviews"
   | "reports"
-  | "settings"
-  | "portal";
+  | "settings";
 
 const SECTION_META: Record<Section, { name: string; subtitle: string }> = {
   dashboard: {
@@ -50,14 +46,6 @@ const SECTION_META: Record<Section, { name: string; subtitle: string }> = {
   regions: {
     name: "المناطق",
     subtitle: "منصة ألف باء — مناطق العمل التعليمية وعدد مدارس كل منطقة",
-  },
-  coordinators: {
-    name: "المنسقات الميدانيات",
-    subtitle: "منصة ألف باء — إدارة حسابات المنسقات الميدانية وتخصيص المدارس",
-  },
-  employees: {
-    name: "إدارة الموظفين والحسابات",
-    subtitle: "منصة ألف باء — حسابات الموظفين وتخصيص الواجهة والصلاحيات التفصيلية",
   },
   distribution: {
     name: "توزيع المدارس والمناطق",
@@ -79,29 +67,23 @@ const SECTION_META: Record<Section, { name: string; subtitle: string }> = {
     name: "الإعدادات والصلاحيات",
     subtitle: "منصة ألف باء — حسابات المستخدمين وحسابات المنسقات وإعدادات النظام",
   },
-  portal: {
-    name: "بوابة المنسقة الميدانية",
-    subtitle: "منصة ألف باء — متابعة المدارس المخصصة وتحديث المعلومات الميدانية",
-  },
 };
 
 const VALID_SECTIONS: Section[] = [
   "dashboard",
   "schools",
   "regions",
-  "coordinators",
-  "employees",
   "distribution",
   "visits",
   "reviews",
   "reports",
   "settings",
-  "portal",
 ];
 
 function sectionFromHash(): Section {
   if (typeof window === "undefined") return "dashboard";
   const h = window.location.hash.replace(/^#\/?/, "");
+  if (h === "coordinators" || h === "employees" || h === "portal") return "settings";
   return VALID_SECTIONS.includes(h as Section) ? (h as Section) : "dashboard";
 }
 
@@ -216,8 +198,8 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DesktopSidebar activeKey={["portal", "coordinators", "employees"].includes(section) ? "settings" : section} onSelect={navigate} />
-      <MobileSidebar open={mobileNavOpen} onOpenChange={setMobileNavOpen} activeKey={["portal", "coordinators", "employees"].includes(section) ? "settings" : section} onSelect={navigate} />
+      <DesktopSidebar activeKey={section} onSelect={navigate} />
+      <MobileSidebar open={mobileNavOpen} onOpenChange={setMobileNavOpen} activeKey={section} onSelect={navigate} />
 
       <div className="lg:ms-64">
         <TopBar user={auth.user} onOpenMobileNav={() => setMobileNavOpen(true)} pageName={meta.name} pageSubtitle={meta.subtitle} onLogout={logout} />
@@ -230,11 +212,7 @@ export default function DashboardPage() {
           {section === "visits" && <VisitsView />}
           {section === "reviews" && <ReviewsView />}
           {section === "reports" && <ReportsView />}
-          {(section === "settings" || section === "employees" || section === "coordinators") && (
-            <SettingsView key={section} onLogout={logout} onOpenPortal={() => navigate("portal")}
-              defaultTab={section === "settings" ? "employees" : section} />
-          )}
-          {section === "portal" && <CoordinatorPortalView />}
+          {section === "settings" && <SettingsView onLogout={logout} />}
         </main>
       </div>
     </div>

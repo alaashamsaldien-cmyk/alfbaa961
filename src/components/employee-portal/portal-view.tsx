@@ -159,9 +159,9 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
   const navSections = GRID_ORDER.filter((k) => enabledSections.has(k));
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg bg-[#f3f4f6] pb-[calc(3.5rem+env(safe-area-inset-bottom))]" dir="rtl">
+    <div className="mx-auto min-h-dvh max-w-lg bg-background pb-[calc(3.625rem+env(safe-area-inset-bottom))]" dir="rtl">
       {/* الترويسة */}
-      <header className="sticky top-0 z-40 bg-sidebar pt-[env(safe-area-inset-top)] shadow-[0_1px_0_var(--border)]">
+      <header className="sticky top-0 z-40 border-b bg-sidebar pt-[env(safe-area-inset-top)]">
         <div className="flex h-14 items-center gap-3 px-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 ring-1 ring-sky-400/30">
             <GraduationCap className="h-5 w-5 text-sky-400" aria-hidden="true" />
@@ -261,7 +261,7 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
 
       {/* التنقل السفلي — مناسب لليد الواحدة */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-lg bg-sidebar pb-[env(safe-area-inset-bottom)] shadow-[0_-1px_0_var(--border)]"
+        className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-lg border-t bg-sidebar pb-[env(safe-area-inset-bottom)]"
         aria-label="التنقل السفلي"
       >
         <div className="grid" style={{ gridTemplateColumns: `repeat(${bottomNav.length}, minmax(0, 1fr))` }}>
@@ -295,6 +295,9 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
           <div className="px-4 pb-3">
             <p className="text-base font-bold text-white">{me.employee.name}</p>
             <p className="text-[11px] text-sidebar-foreground/80">{me.employee.jobTitle ?? me.employee.roleLabel}</p>
+            {me.stats.pendingFollowups > 0 && (
+              <p className="mt-2 text-[11px] text-amber-200">متابعات في نطاقك: {formatNumber(me.stats.pendingFollowups)}</p>
+            )}
           </div>
           <nav className="space-y-1 overflow-y-auto px-3 pb-6 nice-scroll" aria-label="أقسامي">
             <button
@@ -364,11 +367,6 @@ function EmployeeHomeSection({
             <p className="text-[10px] opacity-90">مدارس نطاقي</p>
           </div>
         </div>
-        {stats.pendingFollowups > 0 && (
-          <p className="mt-3 rounded-lg bg-amber-400/90 px-3 py-1.5 text-[11px] font-bold text-amber-950">
-            متابعات في نطاقك: {formatNumber(stats.pendingFollowups)}
-          </p>
-        )}
       </div>
 
       {/* شبكة الأيقونات الكبيرة السهلة لللمس — الأقسام المسموحة فقط */}
@@ -398,7 +396,7 @@ function EmployeeHomeSection({
         </div>
       </div>
 
-      <Card className="p-0">
+      <Card className="rounded-[14px] p-0">
         <CardContent className="p-3">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             هذه الواجهة مخصصة لك من مدير النظام — الأقسام الظاهرة فقط هي المسموح بها لحسابك.

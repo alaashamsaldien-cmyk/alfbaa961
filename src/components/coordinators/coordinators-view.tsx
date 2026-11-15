@@ -3,7 +3,7 @@
 // ——— قسم المنسقات الميدانيات — إدارة الحسابات وعرض المدارس المخصصة ———
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, UserRoundCheck, DoorOpen, KeyRound, RotateCcw, ShieldOff } from "lucide-react";
+import { Plus, UserRoundCheck, KeyRound, RotateCcw, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,11 +24,7 @@ const coordinatorPermissions = {
   canViewVisits: "عرض الزيارات والتواصل",
 } as const;
 
-interface Props {
-  onOpenPortal: () => void;
-}
-
-export function CoordinatorsView({ onOpenPortal }: Props) {
+export function CoordinatorsView() {
   const { toast } = useToast();
   const [list, setList] = useState<CoordinatorDTO[] | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -187,10 +183,6 @@ export function CoordinatorsView({ onOpenPortal }: Props) {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={onOpenPortal} className="gap-2">
-            <DoorOpen className="h-4 w-4" aria-hidden="true" />
-            فتح بوابة المنسقة
-          </Button>
           <Button type="button" onClick={() => setAddOpen(true)} className="gap-2">
             <Plus className="h-4 w-4" aria-hidden="true" />
             إضافة منسقة
@@ -231,9 +223,6 @@ export function CoordinatorsView({ onOpenPortal }: Props) {
                   </p>
                 )}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onOpenPortal}>
-                    بوابة المنسقة
-                  </Button>
                   <Button type="button" size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => openAccount(c)}>
                     {c.hasAccount ? <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> : <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />}
                     {c.hasAccount ? "إعادة تعيين الدخول" : "إنشاء حساب دخول"}

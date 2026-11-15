@@ -51,6 +51,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
   const [rows, setRows] = useState<MyVisitRow[]>([]);
   const [total, setTotal] = useState(0);
   const [period, setPeriod] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
   const [contactType, setContactType] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -93,7 +94,13 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
   }, [load]);
 
   // الفترة الجاهزة والنطاق المخصص يتبادلان — تحديد تاريخ يعيد الفترة إلى «الكل»
-  const setPeriodSafe = (v: string) => { setPeriod(v); setDateFrom(""); setDateTo(""); };
+  const setPeriodSafe = (v: string) => {
+    setShowFilters(v === "custom");
+    setPeriod(v === "custom" ? "all" : v);
+    setContactType("all");
+    setDateFrom("");
+    setDateTo("");
+  };
   const setDate = (key: "dateFrom" | "dateTo", v: string) => { if (key === "dateFrom") { setDateFrom(v); setPeriod("all"); } else { setDateTo(v); setPeriod("all"); } };
   const hasCustomRange = Boolean(dateFrom || dateTo);
 
@@ -133,13 +140,14 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
           </p>
         </div>
         <div className="flex gap-2">
-          <Select value={period} onValueChange={setPeriodSafe}>
-            <SelectTrigger className="w-[130px] bg-white" aria-label="فترة"><SelectValue /></SelectTrigger>
+          <Select value={showFilters ? "custom" : period} onValueChange={setPeriodSafe}>
+            <SelectTrigger className="w-[130px] bg-white text-sm" aria-label="فترة"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">كل الفترات</SelectItem>
               <SelectItem value="today">اليوم</SelectItem>
               <SelectItem value="week">آخر 7 أيام</SelectItem>
               <SelectItem value="month">آخر 30 يوماً</SelectItem>
+              <SelectItem value="custom">فلاتر إضافية</SelectItem>
             </SelectContent>
           </Select>
           <Button type="button" variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} aria-label="تحديث">
@@ -148,11 +156,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
         </div>
       </div>
 
-      <details>
-        <summary className="cursor-pointer text-[11px] text-muted-foreground">
-          فلاتر إضافية{(hasCustomRange || contactType !== "all") && " · مفعّلة"}
-        </summary>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      {showFilters && <div className="flex flex-wrap items-center gap-2">
         <Select value={contactType} onValueChange={setContactType}>
           <SelectTrigger className="h-9 w-full bg-white" aria-label="نوع التواصل"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -199,8 +203,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
             تصدير Excel
           </Button>
         )}
-      </div>
-      </details>
+      </div>}
 
       <p className="text-[11px] text-muted-foreground">الإجمالي: {formatNumber(total)}</p>
 
@@ -225,7 +228,6 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-foreground">{v.schoolName}</p>
-                  {v.schoolAddress && <p className="text-xs text-muted-foreground">{v.schoolAddress}</p>}
                   <p className="text-[10px] text-muted-foreground" suppressHydrationWarning>
                     {formatFullDate(v.createdAt)} · {formatTime(v.createdAt)}
                     {!v.isMine && v.employeeName ? ` · المسجلة من: ${v.employeeName}` : ""}
@@ -256,6 +258,7 @@ export function EmployeeVisitsSection({ canManage, canExport }: { canManage: boo
           </DialogHeader>
           {detail && (
             <div className="space-y-1.5 text-xs">
+              {detail.schoolAddress && <p className="text-muted-foreground">العنوان: {detail.schoolAddress}</p>}
               {[
                 { label: "نوع التواصل", value: detail.contactOther ?? VISIT_CONTACT_TYPE_LABELS[detail.contactType] ?? detail.contactType },
                 { label: "النتيجة", value: detail.result === "OTHER" && detail.resultOther ? `أخرى — ${detail.resultOther}` : VISIT_RESULT_LABELS[detail.result] ?? detail.result },
