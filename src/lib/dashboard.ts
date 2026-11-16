@@ -276,7 +276,7 @@ export async function getDashboardData(period: ActivityPeriod = "all"): Promise<
       getTodayActivity(),
       getFollowUps(),
       getRegionDistribution(),
-      db.school.count({ where: { coordinatorId: null } }),
+      db.school.count({ where: { coordinatorId: null, assignments: { none: {} } } }),
       getRecentActivities(period),
     ]);
 

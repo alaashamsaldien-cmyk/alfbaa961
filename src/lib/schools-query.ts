@@ -88,7 +88,7 @@ export function schoolWhere(filters: SchoolFilters): Record<string, unknown> {
   if (filters.hasPrincipal !== undefined) and.push({ principalName: filters.hasPrincipal ? { not: null } : null });
   if (filters.hasLocation !== undefined) and.push({ lat: filters.hasLocation ? { not: null } : null });
   if (filters.verificationStatus) and.push({ discoveryStatus: filters.verificationStatus });
-  if (filters.coordinatorId) and.push({ coordinatorId: filters.coordinatorId });
+  if (filters.coordinatorId) and.push({ OR: [{ coordinatorId: filters.coordinatorId }, { assignments: { some: { coordinatorId: filters.coordinatorId } } }] });
   if (filters.dataSource) and.push({ dataSource: filters.dataSource });
 
   where.AND = and;

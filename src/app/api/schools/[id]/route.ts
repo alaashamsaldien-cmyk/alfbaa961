@@ -5,7 +5,7 @@ import { mapSchool } from "@/lib/schools-query";
 import { mergeFieldMeta, computeDataQuality, type FieldMeta } from "@/lib/geo/normalize";
 import { getCurrentUser } from "@/lib/session";
 import { requireAdmin } from "@/lib/auth";
-import { approvedMapSchoolWhere, MAP_APPROVED } from "@/lib/map-school-scope";
+import { MAP_APPROVED } from "@/lib/map-school-scope";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -114,10 +114,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       data.regionId = body.regionId && typeof body.regionId === "string" ? body.regionId : null;
     }
     if ("coordinatorId" in body) {
-      data.coordinatorId = body.coordinatorId && typeof body.coordinatorId === "string" ? body.coordinatorId : null;
-      if (data.coordinatorId && !await db.school.findFirst({ where: { id, AND: [approvedMapSchoolWhere] }, select: { id: true } })) {
-        return NextResponse.json({ error: "يمكن تنسيب مدارس الخريطة المعتمدة فقط." }, { status: 409 });
-      }
+      return NextResponse.json({ error: "استخدم نافذة تنسيب المدارس لحفظ التكليف وسجله." }, { status: 400 });
     }
     // تصحيح الإحداثيات يدوياً — بإذن الإدارة فقط
     if ("lat" in body || "lng" in body) {

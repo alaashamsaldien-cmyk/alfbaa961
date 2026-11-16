@@ -4,7 +4,7 @@
 // POST إضافة مدرسة يدوياً يتطلب schools.create — تُسجل بمصدر MANUAL_ENTRY وتُدقق جغرافياً.
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, coordinatorSchoolContact } from "@/lib/field-account";
+import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, coordinatorSchoolContact, fieldVisitOwner } from "@/lib/field-account";
 import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { computeDataQuality } from "@/lib/geo/normalize";
@@ -63,6 +63,9 @@ export async function GET(request: NextRequest) {
           address: true, lat: true, lng: true, studentCount: true,
           availabilityStatus: true, contractStatus: true, lastVisitAt: true,
           discoveryStatus: true, dataQuality: true, dataSource: true,
+          _count: {select:{schoolVisits:{where:{contactType:"FIELD_VISIT",...fieldVisitOwner(principal)}}}},
+          followUps: {where:{status:"PENDING",dueDate:{lte:new Date()}},select:{id:true},take:1},
+          schoolVisits: { where: { contactType: "FIELD_VISIT" }, orderBy: {createdAt:"desc"}, take:1, select:{createdAt:true, coordinatorId:true, employeeId:true, coordinator:{select:{name:true}}, employee:{select:{name:true}}}},
         },
       }),
       mapView ? db.school.count({ where: mapWhere as never }) : undefined,
@@ -73,7 +76,10 @@ export async function GET(request: NextRequest) {
       scope,
       total: total ?? schools.length,
       mappedTotal,
-      schools: schools.map((s) => ({
+      schools: schools.map(({ schoolVisits, followUps, _count, ...s }) => ({
+        visitedByMe: _count.schoolVisits > 0,
+        followUpDue: followUps.length > 0,
+        lastVisitorName: schoolVisits[0]?.coordinator?.name ?? schoolVisits[0]?.employee?.name ?? null,
         ...s,
         ...(principal.isCoordinator ? coordinatorSchoolContact(s) : {}),
         regionName: s.region?.name ?? s.regionText ?? null,
@@ -145,7 +151,7 @@ export async function POST(request: NextRequest) {
         name,
         governorate,
         regionId,
-        coordinatorId: scope.coordinatorId,
+        coordinatorId: principal.isCoordinator ? principal.userId : undefined,
         regionText,
         phone,
         principalName,

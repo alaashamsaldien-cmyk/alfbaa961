@@ -58,6 +58,7 @@ interface SchoolRow {
   studentCount: number | null;
   hasCoords: boolean;
   lastVisitAt: string | null;
+  lastVisitorName?: string | null;
 }
 
 interface LocationState {
@@ -607,6 +608,7 @@ export function VisitWizard({
                   </div>
                 </div>
 
+                {selected.lastVisitAt && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">سبق أن زار المدرسة {selected.lastVisitorName ?? "أحد الزملاء"} بتاريخ {new Date(selected.lastVisitAt).toLocaleString("ar-IQ")}، تأكد من الحاجة لزيارة جديدة قبل المتابعة.</p>}
                 {/* تحديد الموقع */}
                 <div className="space-y-2">
                   {selected.hasCoords && !location && (

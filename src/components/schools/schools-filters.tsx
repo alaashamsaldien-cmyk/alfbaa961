@@ -66,7 +66,7 @@ interface Props {
 export function SchoolsFilters({ filters, onChange, options, resultCount }: Props) {
   const [open, setOpen] = useState(false);
   const set = (k: keyof FiltersState, v: string) => onChange({ ...filters, [k]: v });
-  const activeCount = Object.entries(filters).filter(([k, v]) => (k === "q" ? v.trim() !== "" : v !== "all")).length;
+  const activeCount = Object.entries(filters).filter(([k, v]) => k !== "governorate" && (k === "q" ? v.trim() !== "" : v !== "all")).length;
 
   const regionOptions = options
     ? options.regions.filter((r) => filters.governorate === "all" || r.governorate === filters.governorate || !filters.governorate)
@@ -101,7 +101,7 @@ export function SchoolsFilters({ filters, onChange, options, resultCount }: Prop
         </p>
 
         {activeCount > 0 && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)} className="gap-1.5">
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange({ ...EMPTY_FILTERS, governorate: filters.governorate })} className="gap-1.5">
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             تصفير
           </Button>
@@ -110,19 +110,6 @@ export function SchoolsFilters({ filters, onChange, options, resultCount }: Prop
 
       {open && (
         <div className="grid grid-cols-1 gap-x-4 gap-y-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs">المحافظة</Label>
-            <Select value={filters.governorate} onValueChange={(v) => set("governorate", v)}>
-              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">كل المحافظات</SelectItem>
-                {(options?.governorates ?? []).map((g) => (
-                  <SelectItem key={g} value={g}>{g}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="space-y-1.5">
             <Label className="text-xs">المنطقة</Label>
             <Select value={filters.regionId} onValueChange={(v) => set("regionId", v)}>

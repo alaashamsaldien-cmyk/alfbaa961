@@ -1,105 +1,50 @@
 "use client";
-
-// ——— نافذة تخصيص مدارس لمنسقة (مدرسة واحدة أو دفعة) ———
-
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import type { CoordinatorDTO } from "@/lib/types";
 
-interface Props {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  schoolIds: string[];
-  schoolNames: string[];
-  coordinators: CoordinatorDTO[];
-  onDone: () => void;
-}
-
+type Preview = { schoolId: string; schoolName: string; before: {id: string; name: string}[]; after: {id: string; name: string}[] };
+interface Props { open: boolean; onOpenChange: (o: boolean) => void; schoolIds: string[]; schoolNames: string[]; coordinators: CoordinatorDTO[]; onDone: () => void }
 export function AssignDialog({ open, onOpenChange, schoolIds, schoolNames, coordinators, onDone }: Props) {
   const { toast } = useToast();
-  const [coordinatorId, setCoordinatorId] = useState("none");
-  const [saving, setSaving] = useState(false);
-
+  const [selected, setSelected] = useState<string[]>([]);
+  const [mode, setMode] = useState("shared");
+  const [action, setAction] = useState("add");
+  const [preview, setPreview] = useState<Preview[] | null>(null);
+  const [history, setHistory] = useState<{id:string; actorName:string; createdAt:string; details:string | null}[]>([]);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (open) setCoordinatorId("none");
-  }, [open]);
-
-  const submit = async (action: "assign" | "unassign") => {
-    setSaving(true);
+    if (!open) return;
+    setSelected([]); setMode("shared"); setAction("add"); setPreview(null); setHistory([]);
+    const controller = new AbortController();
+    if (schoolIds.length === 1) void fetch(`/api/coordinators/assignments?schoolId=${encodeURIComponent(schoolIds[0])}`, {signal: controller.signal})
+      .then(async r => { if (!r.ok) throw new Error(); return r.json(); }).then(j => setHistory(j.history ?? []))
+      .catch(() => { if (!controller.signal.aborted) toast({title:"تعذر تحميل سجل التنسيب",variant:"destructive"}); });
+    return () => controller.abort();
+  }, [open, schoolIds, toast]);
+  const submit = async (isPreview: boolean) => {
+    setBusy(true);
     try {
-      const res = await fetch("/api/coordinators/assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, coordinatorId: action === "assign" ? coordinatorId : null, schoolIds }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => null);
-        throw new Error(j?.error ?? "تعذر تنفيذ العملية");
-      }
-      const j = await res.json();
-      toast({
-        title: action === "assign" ? "تم التخصيص" : "تم فصل التخصيص",
-        description:
-          action === "assign"
-            ? `خصصت ${j.affected} مدرسة للمنسقة «${j.coordinatorName}» — ستظهر فوراً في حسابها وخريطتها.`
-            : `فُصل التخصيص عن ${j.affected} مدرسة.`,
-      });
-      onOpenChange(false);
-      onDone();
-    } catch (e) {
-      toast({ title: "تعذر تنفيذ العملية", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+      const r = await fetch("/api/coordinators/assignments", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({schoolIds,coordinatorIds:selected,mode,action,preview:isPreview,expected:isPreview?undefined:preview})});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      if (isPreview) setPreview(j.preview);
+      else {toast({title:"تم حفظ التنسيب",description:`تم تحديث تكليف ${j.affected} مدرسة وحفظ السجل.`});onDone();onOpenChange(false);}
+    } catch(e) { toast({title:"تعذر التنسيب",description:e instanceof Error ? e.message : undefined,variant:"destructive"}); }
+    finally {setBusy(false);}
   };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>تخصيص المدارس لمنسقة ميدانية</DialogTitle>
-          <DialogDescription>
-            {schoolNames.length <= 3 ? schoolNames.join("، ") : `${schoolNames.slice(0, 3).join("، ")} و${schoolNames.length - 3} أخرى`}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label className="text-xs">المنسقة</Label>
-          {coordinators.length === 0 ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              لا توجد منسقات نشطات — أضف منسقة أولاً من قسم «المنسقات الميدانيات».
-            </p>
-          ) : (
-            <Select value={coordinatorId} onValueChange={setCoordinatorId}>
-              <SelectTrigger><SelectValue placeholder="اختر المنسقة" /></SelectTrigger>
-              <SelectContent>
-                {coordinators.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name} ({c.schoolCount} مدرسة مخصصة حالياً)
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            عند التخصيص تظهر المدرسة تلقائياً في حساب المنسقة وعلى خريطتها الميدانية، وتستطيع تحديث بياناتها الميدانية فقط (اسم المدير، الهاتف، عدد الطلاب، المراحل، الملاحظات) وتسجيل نتائج الزيارة. لا تستطيع تعديل أي مدرسة غير مخصصة لها.
-          </p>
-        </div>
-        <DialogFooter className="flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            إلغاء
-          </Button>
-          <Button type="button" variant="secondary" onClick={() => submit("unassign")} disabled={saving}>
-            فصل التخصيص الحالي
-          </Button>
-          <Button type="button" onClick={() => submit("assign")} disabled={saving || coordinatorId === "none" || coordinators.length === 0}>
-            {saving ? "جارٍ التنفيذ..." : "تخصيص للمنسقة"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+  return <Dialog open={open} onOpenChange={v => {if (!busy) onOpenChange(v);}}><DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto" dir="rtl">
+    <DialogHeader><DialogTitle>تنسيب المدارس</DialogTitle><DialogDescription>{schoolIds.length} مدرسة · {schoolNames.slice(0,3).join("، ")}</DialogDescription></DialogHeader>
+    {preview ? <div className="space-y-3"><p className="font-bold">مراجعة قبل الحفظ</p>{preview.map(s => <div key={s.schoolId} className="rounded-xl border p-3 text-sm"><b>{s.schoolName}</b><p>حالياً: {s.before.map(p=>p.name).join("، ") || "بلا تنسيب"}</p><p className="text-sky-700">بعد الحفظ: {s.after.map(p=>p.name).join("، ") || "بلا تنسيب"}</p></div>)}</div> : <fieldset disabled={busy} className="space-y-4">
+      <label className="block">طريقة التوزيع<select className="mt-1 w-full rounded-lg border p-2" value={mode} onChange={e=>{setMode(e.target.value);if(e.target.value === "separate") setAction("replace");}}><option value="shared">مشترك — نفس المدارس لكل المختارين</option><option value="separate">منفصل — مجموعة مختلفة لكل منسّق</option></select></label>
+      <label className="block">العملية<select className="mt-1 w-full rounded-lg border p-2" value={action} onChange={e=>setAction(e.target.value)} disabled={mode === "separate"}><option value="add">إضافة مع الحفاظ على التكليف الحالي</option><option value="replace">استبدال التكليف الحالي</option><option value="remove">إزالة المختارين فقط من التكليف</option></select></label>
+      {mode === "separate" && <p className="rounded-lg bg-amber-50 p-3 text-sm">توزيع بالتناوب حسب ترتيب الاختيار، مع استبدال التكليف السابق. راجع حصة كل منسّق قبل الحفظ.</p>}
+      <p className="font-semibold">اختر المنسّقين</p><div className="max-h-56 space-y-2 overflow-y-auto">{coordinators.map(c=><label key={c.id} className="flex cursor-pointer items-center gap-3 rounded-xl border p-3 has-[:checked]:border-sky-400 has-[:checked]:bg-sky-50"><input type="checkbox" checked={selected.includes(c.id)} onChange={e=>setSelected(ids=>e.target.checked?[...ids,c.id]:ids.filter(id=>id!==c.id))}/><span>{c.name} <small className="text-muted-foreground">· {c.schoolCount} مدرسة</small></span></label>)}</div>
+      {!coordinators.length && <p>أضف حساب منسّق نشط من إعدادات الإدارة أولاً.</p>}
+    </fieldset>}
+    <DialogFooter className="gap-2"><Button variant="outline" disabled={busy} onClick={()=>preview?setPreview(null):onOpenChange(false)}>{preview?"رجوع للتعديل":"إلغاء"}</Button><Button disabled={busy || !selected.length} onClick={()=>submit(!preview)}>{busy?"جارٍ التنفيذ…":preview?"تأكيد وحفظ التنسيب":"معاينة التوزيع"}</Button></DialogFooter>
+    {schoolIds.length===1 && <details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-semibold">سجل التنسيب</summary>{!history.length?<p>لا يوجد سجل تنسيب جديد لهذه المدرسة.</p>:history.map(h=>{let d:Partial<Preview>={};try{d=JSON.parse(h.details??"{}");}catch{}return <div key={h.id} className="border-t py-2"><b>{h.actorName}</b> · {new Date(h.createdAt).toLocaleString("ar-IQ")}<p>من: {d.before?.map(p=>p.name).join("، ") || "بلا تنسيب"}</p><p>إلى: {d.after?.map(p=>p.name).join("، ") || "بلا تنسيب"}</p></div>;})}</details>}
+  </DialogContent></Dialog>;
 }

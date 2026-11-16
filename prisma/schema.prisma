@@ -116,6 +116,7 @@ model Coordinator {
   lastLoginAt  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  assignments SchoolAssignment[]
   schools   School[]
   activities Activity[]
   followUps  FollowUp[]
@@ -162,6 +163,7 @@ model School {
   notes              String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  assignments        SchoolAssignment[]
   activities         Activity[]
   followUps          FollowUp[]
   schoolVisits       SchoolVisit[]
@@ -359,4 +361,15 @@ model AuditLog {
   @@index([actorId])
   @@index([entityType, entityId])
   @@index([action])
+}
+
+// Additional assignees; legacy School.coordinatorId remains readable during rollout.
+model SchoolAssignment {
+  schoolId String
+  coordinatorId String
+  school School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  coordinator Coordinator @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+  @@id([schoolId, coordinatorId])
+  @@index([coordinatorId])
 }

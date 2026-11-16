@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     }
 
     const schools = await db.school.findMany({
-      where: { coordinatorId, AND: [approvedMapSchoolWhere] },
+      where: { AND: [approvedMapSchoolWhere, { OR: [{ coordinatorId }, { assignments: { some: { coordinatorId } } }] }] },
       include: { region: true, coordinator: { select: { id: true, name: true } } },
       orderBy: { name: "asc" },
       take: 500,

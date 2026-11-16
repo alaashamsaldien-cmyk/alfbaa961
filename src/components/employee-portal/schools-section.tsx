@@ -2,6 +2,7 @@
 
 // ——— بوابة الموظف: قسم المدارس — قائمة نطاقه + بحث + تفاصيل + إضافة مدرسة يدوياً ———
 // يخدم أيضاً قسم «اكتشاف وإضافة المدارس» (defaultAddOpen).
+import { SchoolFieldWorkflow } from "./school-field-workflow";
 import dynamic from "next/dynamic";
 import type { MapMarker } from "@/components/schools/base-map";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -52,6 +53,9 @@ interface SchoolRow {
   availabilityStatus: string;
   contractStatus: string;
   lastVisitAt: string | null;
+  followUpDue?: boolean;
+  visitedByMe?: boolean;
+  lastVisitorName?: string | null;
   hasCoords: boolean;
 }
 
@@ -155,7 +159,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error ?? "تعذر جلب قائمة المدارس");
       if (signal?.aborted) return;
-      setSchools(j.schools ?? []);
+      setSchools((j.schools ?? []).sort((a: SchoolRow,b: SchoolRow)=>Number(Boolean(b.followUpDue))-Number(Boolean(a.followUpDue))));
       setMapCounts(j.mappedTotal === undefined ? null : { total: j.total, mapped: j.mappedTotal });
     } catch (error) {
       if (signal?.aborted) return;
@@ -166,6 +170,13 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
       if (!signal?.aborted) setLoading(false);
     }
   }, [toast, view, visitStatus]);
+
+  useEffect(() => {
+    const refresh = () => { if (!document.hidden) void load(searchQ); };
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [load, searchQ]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -324,7 +335,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                     <p className="text-sm font-bold">{focusedSchool.name}</p>
                     <p className="text-xs text-muted-foreground">{focusedSchool.address ?? focusedSchool.regionName}</p>
                     <p className={`text-xs ${focusedSchool.lastVisitAt ? "font-semibold text-emerald-700" : ""}`}>
-                      {focusedSchool.lastVisitAt ? `✓ تمّت الزيارة · ${formatFullDate(focusedSchool.lastVisitAt)}` : "لم تُزر"}
+                      {focusedSchool.lastVisitAt ? `✓ تمّت الزيارة · ${focusedSchool.lastVisitorName ?? ""} · ${formatFullDate(focusedSchool.lastVisitAt)}` : "لم تُزر"}
                     </p>
                   </div>
                   <Button type="button" size="sm" variant="outline" onClick={() => openDetail(focusedSchool.id)}>تفاصيل المدرسة</Button>
@@ -361,6 +372,9 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                   <Badge variant="outline" className={`text-[9px] ${s.contractStatus === "CONTRACTED" ? "bg-green-100 text-green-800 border-green-300" : "bg-gray-100 text-gray-600 border-gray-200"}`}>
                     {s.contractStatus === "CONTRACTED" ? "متعاقدة" : "غير متعاقدة"}
                   </Badge>
+                  {s.visitedByMe && <Badge className="bg-sky-100 text-sky-900">زرتها أنا</Badge>}
+                  {s.followUpDue && <Badge className="bg-amber-100 text-amber-900">حان موعد المتابعة</Badge>}
+                  {s.lastVisitorName && <span className="text-xs text-emerald-700">آخر زيارة: {s.lastVisitorName}</span>}
                   {s.lastVisitAt && (
                     <Badge variant="outline" className="border-emerald-300 bg-white text-[9px] text-emerald-800">تمّت الزيارة</Badge>
                   )}
@@ -411,6 +425,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
               <div className="space-y-2 rounded-lg border bg-white p-2.5">
                 {detail.school.address && <p className="text-xs text-muted-foreground">{detail.school.address}</p>}
                 <SchoolLocationActions key={detail.school.id} school={detail.school} />
+                <SchoolFieldWorkflow key={detail.school.id} schoolId={detail.school.id} />
               </div>
               {detail.school.hasCoords && detail.school.lat !== null && (
                 <div className="h-44 overflow-hidden rounded-xl border">

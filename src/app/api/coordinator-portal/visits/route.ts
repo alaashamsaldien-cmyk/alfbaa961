@@ -37,14 +37,9 @@ export async function POST(request: NextRequest) {
     }
 
     // التحقق الحرج من الصلاحية: المدرسة مخصصة لهذه المنسقة حصراً
-    const school = await db.school.findFirst({ where: { id: schoolId, coordinatorId, AND: [approvedMapSchoolWhere] } });
+    const school = await db.school.findFirst({ where: { id: schoolId, AND: [approvedMapSchoolWhere, { OR: [{ coordinatorId }, { assignments: { some: { coordinatorId } } }] }] } });
     if (!school) return NextResponse.json({ error: "المدرسة غير موجودة." }, { status: 404 });
-    if (school.coordinatorId !== coordinatorId) {
-      return NextResponse.json(
-        { error: "هذه المدرسة غير مخصصة لهذه المنسقة — تسجيل النشاط مرفوض." },
-        { status: 403 }
-      );
-    }
+
 
     // تاريخ النشاط: افتراضياً الآن، مع دعم تاريخ اليوم فقط للإدخال اليدوي المتأخر
     let occurredAt = new Date();

@@ -6,22 +6,22 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { Table2, Map as MapIcon, Compass, FileSpreadsheet, ExternalLink } from "lucide-react";
+import { ChevronRight, Table2, Map as MapIcon, Compass, FileSpreadsheet, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { GoogleSchoolsMap } from "./google-schools-map";
 import { GoogleSchoolsSearch } from "./google-schools-search";
 import { GovernorateCards } from "./governorate-cards";
+import { IRAQ_GOVERNORATES } from "@/lib/geo/iraq";
 import { SCHOOL_GOVERNORATES } from "@/lib/geo/school-governorates";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SchoolsFilters, EMPTY_FILTERS, type FiltersState } from "./schools-filters";
 import { SchoolsTable } from "./schools-table";
 import { SchoolEditDialog } from "./school-edit-dialog";
 import { AssignDialog } from "./assign-dialog";
 import { ExcelDialog } from "./excel-dialog";
 import { CONTRACT_LABELS } from "@/lib/labels";
-import { formatFullDate } from "@/lib/time";
+import { formatFullDate, formatNumber } from "@/lib/time";
 import {
   SECTOR_LABELS_UI,
   type SchoolDTO,
@@ -71,7 +71,6 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
       sp.set("page", String(p));
       sp.set("pageSize", String(pageSize));
       if (view === "map") sp.set("onlyMap", "1");
-      sp.set("schoolCoverage", "1");
       sp.set("catalog", "research");
       return sp.toString();
     },
@@ -184,7 +183,20 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
     if (school) setLocateTarget(school);
   }, [data]);
   const focusedSchool = data?.schools.find((school) => school.id === locateTarget?.id) ?? locateTarget;
-  const mapCenter = SCHOOL_GOVERNORATES.find(({ name }) => name === filters.governorate)?.center ?? { lat: 33.3152, lng: 44.3661 };
+  const selectedGovernorate = IRAQ_GOVERNORATES.find(({ name }) => name === filters.governorate);
+  const mapCenter = selectedGovernorate?.center ?? { lat: 33.3152, lng: 44.3661 };
+  const canDiscover = SCHOOL_GOVERNORATES.some(({ name }) => name === filters.governorate);
+  const counts = data?.options?.governorateCounts;
+
+  const selectGovernorate = (governorate: string) => {
+    setLocateTarget(null);
+    setSelectedIds(new Set());
+    setView("table");
+    setGoogleOpen(false);
+    setData((current) => current && { ...current, schools: [], total: 0, mappedTotal: undefined });
+    setLoading(true);
+    setFilters({ ...EMPTY_FILTERS, governorate });
+  };
 
   const exportQuery = useMemo(() => buildQuery(1), [buildQuery]);
 
@@ -198,33 +210,26 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
           <TabsTrigger value="map-schools">مدارس الخريطة</TabsTrigger>
         </TabsList>
       </Tabs>
-      {catalog === "map-schools" ? <MapSchoolsCatalog revision={mapRevision} onAssign={(id, name) => openAssign([id], [name])} onEdit={openMapSchool} /> : <>
-      {/* رأس القسم */}
+      {catalog === "map-schools" ? <MapSchoolsCatalog revision={mapRevision} onAssign={openAssign} onEdit={openMapSchool} /> : <>
+      {!selectedGovernorate ? (
+        <>
+          <h2 className="text-lg font-extrabold">قائمة المدارس</h2>
+          <GovernorateCards counts={counts} missing={counts ? "0 مدرسة" : "—"} onSelect={selectGovernorate} />
+        </>
+      ) : <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-lg font-extrabold text-foreground">إدارة المدارس</p>
+          <h2 className="text-lg font-extrabold text-foreground">مدارس {selectedGovernorate.name}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {data ? `${data.total} مدرسة في النتائج` : "جارٍ التحميل..."}
+            {counts ? `${formatNumber(counts[selectedGovernorate.name] ?? 0)} مدرسة في سجل البحث` : "جارٍ التحميل..."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={filters.governorate} onValueChange={(governorate) => {
-            setSelectedIds(new Set());
-            setLocateTarget(null);
-            setFilters((current) => ({ ...current, governorate, regionId: "all" }));
-          }}>
-            <SelectTrigger className="w-auto gap-2" aria-label="المحافظة">
-              <MapIcon className="h-4 w-4" /><SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">كل المحافظات</SelectItem>
-              {SCHOOL_GOVERNORATES.map(({ name }) => <SelectItem value={name} key={name}>{name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button type="button" onClick={() => setGoogleOpen((open) => !open)} className="gap-2" aria-expanded={googleOpen}>
+          <Button type="button" variant="outline" onClick={() => selectGovernorate("all")}><ChevronRight aria-hidden="true" />المحافظات</Button>
+          {canDiscover && <Button type="button" onClick={() => setGoogleOpen((open) => !open)} className="gap-2" aria-expanded={googleOpen}>
             <Compass className="h-4 w-4" aria-hidden="true" />
             اكتشاف المدارس
-          </Button>
+          </Button>}
           <Button type="button" variant="outline" onClick={() => setExcelOpen(true)} className="gap-2">
             <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
             Excel
@@ -232,20 +237,8 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
         </div>
       </div>
 
-      <GovernorateCards
-        counts={data?.options?.governorateCounts}
-        selected={filters.governorate}
-        missing={data?.options?.governorateCounts ? "0 مدرسة" : "—"}
-        onSelect={(governorate) => {
-          setLocateTarget(null);
-          setSelectedIds(new Set());
-          setView("table");
-          setFilters({ ...EMPTY_FILTERS, governorate });
-        }}
-      />
-
       {googleOpen && <GoogleSchoolsSearch key={filters.governorate} governorate={filters.governorate} />}
-      <SchoolsFilters filters={filters} onChange={(next) => { setLocateTarget(null); setSelectedIds(new Set()); setFilters(next); }} options={data?.options ? { ...data.options, governorates: SCHOOL_GOVERNORATES.map(({ name }) => name) } : null} resultCount={data?.total ?? 0} />
+      <SchoolsFilters filters={filters} onChange={(next) => { setLocateTarget(null); setSelectedIds(new Set()); setFilters(next); }} options={data?.options ?? null} resultCount={data?.total ?? 0} />
 
 
       <Tabs value={view} onValueChange={(v) => { setLocateTarget(null); setView(v as "table" | "map"); }}>
@@ -321,6 +314,7 @@ export function SchoolsView({ onOpenChangeNotification }: { onOpenChangeNotifica
           )}
         </div>
       )}
+      </>}
 
       {/* النوافذ */}
       <ExcelDialog

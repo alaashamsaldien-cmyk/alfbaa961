@@ -28,7 +28,7 @@ export async function GET() {
         db.schoolVisit.count({ where: { ...owner, createdAt: { gte: getBaghdadStartOfDay(now), lte: getBaghdadEndOfDay(now) } } }),
         db.schoolVisit.count({ where: { ...owner, createdAt: { gte: getBaghdadDaysAgoStart(6) } } }),
         db.schoolVisit.count({ where: owner }),
-        db.schoolVisit.count({ where: { ...owner, nextFollowUpAt: { gte: getBaghdadStartOfDay(now) } } }),
+        db.followUp.count({where:{status:"PENDING",dueDate:{lte:getBaghdadEndOfDay(now)},school:scope}}),
       ]);
       const regionNames = [...new Set(regions.map((s) => s.region?.name ?? s.regionText ?? s.governorate).filter(Boolean))];
       return NextResponse.json({

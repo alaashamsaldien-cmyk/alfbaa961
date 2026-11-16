@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getPrincipal } from "@/lib/auth";
 import { getPermissionMap } from "@/lib/permissions";
@@ -34,8 +35,8 @@ export async function getFieldPermissions(account: { userId: string; isCoordinat
   return perms;
 }
 
-export async function getFieldSchoolScope(account: { userId: string; isCoordinator: boolean }) {
-  if (account.isCoordinator) return { coordinatorId: account.userId, AND: [approvedMapSchoolWhere] };
+export async function getFieldSchoolScope(account: { userId: string; isCoordinator: boolean }): Promise<Prisma.SchoolWhereInput & { governorate?: string; regionId?: string }> {
+  if (account.isCoordinator) return { AND: [approvedMapSchoolWhere, { OR: [{ coordinatorId: account.userId }, { assignments: { some: { coordinatorId: account.userId } } }] }] };
   const employee = await db.user.findUniqueOrThrow({
     where: { id: account.userId },
     select: { governorate: true, regionId: true },

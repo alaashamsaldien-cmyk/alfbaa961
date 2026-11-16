@@ -16,6 +16,7 @@ export async function GET() {
         authSessions: { where: { expiresAt: { gt: new Date() } }, select: { id: true }, take: 1 },
       },
     });
+    const counts = new Map(await Promise.all(coordinators.map(async c => [c.id, await db.school.count({where:{OR:[{coordinatorId:c.id},{assignments:{some:{coordinatorId:c.id}}}]}})] as const)));
     return NextResponse.json({
       coordinators: coordinators.map((c) => ({
         id: c.id,
@@ -24,7 +25,7 @@ export async function GET() {
         email: c.email,
         notes: c.notes,
         isActive: c.isActive,
-        schoolCount: c._count.schools,
+        schoolCount: counts.get(c.id) ?? 0,
         canAddSchools: c.canAddSchools,
         canRegisterVisits: c.canRegisterVisits,
         canViewVisits: c.canViewVisits,

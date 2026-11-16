@@ -97,7 +97,7 @@ export function SchoolsTable({ schools, loading, selectedIds, onToggleSelect, on
                   />
                 </TableCell>
                 <TableCell className="max-w-[240px]">
-                  <p className="truncate font-semibold text-foreground" title={s.name}>{s.name}</p>
+                  <button type="button" className="block w-full truncate text-start font-semibold text-sky-800 hover:underline focus-visible:outline-sky-600" title={s.name} onClick={() => onEdit(s)}>{s.name}</button>
                   <p className="truncate text-[11px] text-muted-foreground" title={s.address ?? ""}>
                     {s.address ?? s.governorate ?? "—"}
                     {s.dataSource ? ` · ${DATA_SOURCE_LABELS[s.dataSource] ?? s.dataSource}` : ""}

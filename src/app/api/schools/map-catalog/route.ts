@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { approvedMapSchoolWhere, MAP_APPROVED, MAP_SCHOOL_SOURCES, mapSchoolWhere } from "@/lib/map-school-scope";
-import basra from "@/data/map-schools/basra.json";
+import { mapSchoolDatasets } from "@/data/map-schools/catalog";
 
-const sites = new Map(Object.entries(basra).flatMap(([district, schools]) =>
-  schools.map((school) => [school.id, { ...school, district }] as const),
+const sites = new Map(Object.entries(mapSchoolDatasets).flatMap(([governorate, dataset]) =>
+  Object.entries(dataset ?? {}).flatMap(([district, schools]) =>
+    schools.map((school) => [school.id, { ...school, district, governorate }] as const)),
 ));
 const selection = {
   id: true, name: true, address: true, regionText: true, lat: true, lng: true,
   governorate: true, lastVisitAt: true, coordinator: { select: { name: true } },
+  assignments: { select: { coordinator: { select: { name: true } } } },
   osmType: true, osmId: true,
 } as const;
 
@@ -24,7 +26,8 @@ export async function GET(request: NextRequest) {
         by: ["governorate"], where: { AND: [mapSchoolWhere, { NOT: approvedMapSchoolWhere }] }, _count: { _all: true },
       }),
       db.school.findMany({
-        where: { governorate: "البصرة", osmId: { not: null }, AND: [mapSchoolWhere] }, select: { osmType: true, osmId: true },
+        where: { governorate: { in: Object.keys(mapSchoolDatasets) }, osmId: { not: null }, AND: [mapSchoolWhere] },
+        select: { governorate: true, osmType: true, osmId: true },
       }),
       governorate ? db.school.findMany({
         where: { governorate, AND: [mapSchoolWhere] },
@@ -35,12 +38,20 @@ export async function GET(request: NextRequest) {
       where: { governorate, AND: [approvedMapSchoolWhere] }, select: { id: true },
     })).map(({ id }) => id)) : new Set<string>();
     const pendingCounts = Object.fromEntries(pending.flatMap((row) => row.governorate ? [[row.governorate, row._count._all]] : []));
-    const basraSavedCount = alreadyCataloged.filter(({ osmType, osmId }) => sites.has(`${osmType}/${osmId}`)).length;
-    pendingCounts["البصرة"] = (pendingCounts["البصرة"] ?? 0) + sites.size - basraSavedCount;
+    const savedSourceIds = new Set(alreadyCataloged.flatMap(({ governorate, osmType, osmId }) => {
+      const id = `${osmType}/${osmId}`;
+      return sites.get(id)?.governorate === governorate ? [id] : [];
+    }));
+    for (const [id, { governorate }] of sites) {
+      pendingCounts[governorate] ??= 0;
+      if (!savedSourceIds.has(id)) pendingCounts[governorate] += 1;
+    }
     return NextResponse.json({
       counts: Object.fromEntries(grouped.flatMap((row) => row.governorate ? [[row.governorate, row._count._all]] : [])),
       pendingCounts,
-      schools: saved.map(({ osmType, osmId, ...school }) => ({
+      candidates: governorate && Object.hasOwn(mapSchoolDatasets, governorate) ? mapSchoolDatasets[governorate] : null,
+      schools: saved.map(({ osmType, osmId, assignments, ...school }) => ({
+        assigneeNames: [...new Set([school.coordinator?.name, ...assignments.map(a=>a.coordinator.name)].filter(Boolean))],
         ...school,
         sourceId: osmType && osmId ? `${osmType}/${osmId}` : null,
         approved: approved.has(school.id),
@@ -71,10 +82,11 @@ export async function POST(request: NextRequest) {
     const name = site.name;
     const [osmType, identity] = site.id.split("/");
     const osmId = BigInt(identity);
-    const governorate = "البصرة";
+    const { governorate } = site;
     const result = await db.$transaction(async (tx) => {
-      const already = await tx.school.findUnique({ where: { osmType_osmId: { osmType, osmId } }, select: { id: true, lat: true, lng: true } });
+      const already = await tx.school.findUnique({ where: { osmType_osmId: { osmType, osmId } }, select: { id: true, governorate: true, lat: true, lng: true } });
       if (already) {
+        if (already.governorate !== governorate) return { provinceConflict: true };
         await tx.school.update({ where: { id: already.id }, data: {
           discoveryStatus: MAP_APPROVED, lat: already.lat ?? site.lat, lng: already.lng ?? site.lng,
         } });
@@ -113,6 +125,7 @@ export async function POST(request: NextRequest) {
       return school;
     });
     if ("candidates" in result) return NextResponse.json(result, { status: 409 });
+    if ("provinceConflict" in result) return NextResponse.json({ error: "هذا الموقع مسجّل ضمن محافظة أخرى. راجع موقعه والمحافظة قبل الاعتماد." }, { status: 409 });
     if ("invalidLink" in result) return NextResponse.json({ error: "السجل المختار مرتبط بموقع خريطة آخر." }, { status: 409 });
     return NextResponse.json(result);
   } catch (error) {

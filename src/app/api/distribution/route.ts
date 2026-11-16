@@ -9,11 +9,13 @@ export async function GET() {
   const guard = await requireAdmin();
   if ("response" in guard) return guard.response;
   try {
-    const [coordinators, schools, totalSchools] = await Promise.all([
+    const [coordinatorRows, schools, totalSchools] = await Promise.all([
       db.coordinator.findMany({
         where: { isActive: true },
         orderBy: { name: "asc" },
         include: {
+          assignments: {select:{school:{select:{id:true,contractStatus:true,lastVisitAt:true,regionId:true,region:{select:{name:true,governorate:true}}}}}},
+          activities: {where:{type:"VISIT"},select:{schoolId:true,occurredAt:true}},
           schools: {
             select: {
               id: true,
@@ -27,7 +29,7 @@ export async function GET() {
         },
       }),
       db.school.findMany({
-        where: { coordinatorId: null },
+        where: { coordinatorId: null, assignments: { none: {} } },
         select: {
           regionId: true,
           region: { select: { name: true, governorate: true } },
@@ -36,8 +38,9 @@ export async function GET() {
       db.school.count(),
     ]);
 
+    const coordinators = coordinatorRows.map(c=>({...c,schools:[...new Map([...c.schools,...c.assignments.map(a=>a.school)].map(s=>[s.id,s])).values()]}));
     const coordinatorStats = coordinators.map((c) => {
-      const visitedSchools = c.schools.filter((s) => s.lastVisitAt !== null);
+      const visitedSchools = [...new Map(c.activities.map(a=>[a.schoolId,{lastVisitAt:a.occurredAt}])).values()];
       const lastVisit = visitedSchools.reduce<Date | null>(
         (acc, s) => (acc === null || (s.lastVisitAt && s.lastVisitAt > acc) ? s.lastVisitAt : acc),
         null
@@ -68,8 +71,11 @@ export async function GET() {
       string,
       { regionId: string | null; governorate: string; total: number; assigned: number; unassigned: number }
     >();
+    const counted = new Set<string>();
     for (const c of coordinators) {
       for (const s of c.schools) {
+        if(counted.has(s.id))continue;
+        counted.add(s.id);
         const key = s.region?.name ?? "بلا منطقة";
         const cur = regionMap.get(key) ?? {
           regionId: s.regionId,
@@ -101,7 +107,7 @@ export async function GET() {
       .map(([name, v]) => ({ regionName: name, ...v }))
       .sort((a, b) => b.total - a.total);
 
-    const assignedTotal = coordinatorStats.reduce((a, c) => a + c.schoolCount, 0);
+    const assignedTotal = totalSchools - schools.length;
 
     return NextResponse.json({
       totalSchools,

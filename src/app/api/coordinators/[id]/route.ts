@@ -23,20 +23,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
     if ("isActive" in body) {
       data.isActive = Boolean(body.isActive);
-      // عند التعطيل تُفصل المدارس المخصصة لها (إشعار يوضح ذلك)
-      if (!data.isActive) {
-        const assigned = await db.school.count({ where: { coordinatorId: id } });
-        if (assigned > 0) {
-          await db.school.updateMany({ where: { coordinatorId: id }, data: { coordinatorId: null } });
-          await db.notification.create({
-            data: {
-              title: "تعديل في تخصيص المدارس",
-              message: `تم تعطيل حساب منسقة وفصل ${assigned} مدرسة كانت مخصصة لها. يجب إعادة تخصيصها لمنسقات نشطات.`,
-              type: "WARNING",
-            },
-          });
-        }
-      }
+      // Preserve assignment and visit history when disabled; authentication denies inactive accounts.
+
     }
 
     if (Object.keys(data).length === 0) {
@@ -59,10 +47,10 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     const { id } = await params;
     const c = await db.coordinator.findUnique({
       where: { id },
-      include: { _count: { select: { schools: true, activities: true, followUps: true, schoolVisits: true } } },
+      include: { _count: { select: { schools: true, assignments: true, activities: true, followUps: true, schoolVisits: true } } },
     });
     if (!c) return NextResponse.json({ error: "المنسقة غير موجودة." }, { status: 404 });
-    if (c._count.schools > 0) {
+    if (c._count.schools > 0 || c._count.assignments > 0) {
       return NextResponse.json(
         { error: `لا يمكن الحذف — لها ${c._count.schools} مدرسة مخصصة. افصلها أولاً أو عطّل الحساب.` },
         { status: 409 }

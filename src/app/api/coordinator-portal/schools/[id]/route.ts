@@ -22,11 +22,9 @@ const FIELD_LABELS_AR: Record<string, string> = {
 
 /** التحقق الحرج من الصلاحية: المدرسة يجب أن تكون مخصصة لهذه المنسقة */
 async function assertAssigned(schoolId: string, coordinatorId: string) {
-  const school = await db.school.findFirst({ where: { id: schoolId, coordinatorId, AND: [approvedMapSchoolWhere] } });
+  const school = await db.school.findFirst({ where: { id: schoolId, AND: [approvedMapSchoolWhere, { OR: [{ coordinatorId }, { assignments: { some: { coordinatorId } } }] }] } });
   if (!school) return { school: null, error: "المدرسة غير موجودة." as const };
-  if (school.coordinatorId !== coordinatorId) {
-    return { school: null, error: "هذه المدرسة غير مخصصة لهذه المنسقة — التعديل مرفوض." as const };
-  }
+
   const coordinator = await db.coordinator.findFirst({ where: { id: coordinatorId, isActive: true } });
   if (!coordinator) return { school: null, error: "المنسقة غير نشطة." as const };
   return { school, error: null };

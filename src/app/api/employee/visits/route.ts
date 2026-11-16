@@ -290,6 +290,12 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      if (nextFollowUpAt) await tx.followUp.create({data:{
+        schoolId, type:"FOLLOW_UP", title:"متابعة بعد زيارة أو تواصل", dueDate:nextFollowUpAt,
+        coordinatorId:principal.isCoordinator?principal.userId:undefined,
+        userId:principal.isCoordinator?undefined:principal.userId,
+      }});
+
       await tx.notification.create({
         data: {
           title: contactType === "FIELD_VISIT" ? "زيارة ميدانية جديدة" : "تواصل جديد من موظف",

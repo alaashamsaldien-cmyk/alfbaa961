@@ -2,8 +2,9 @@
 
 // ——— نافذة تعديل بيانات مدرسة من الإدارة + عرض توثيق كل حقل وحالته ———
 
+import { SchoolFieldWorkflow } from "@/components/employee-portal/school-field-workflow";
 import { useEffect, useState } from "react";
-import { ShieldCheck, Info } from "lucide-react";
+import { ShieldCheck, Info, MapPin } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -131,7 +132,7 @@ export function SchoolEditDialog({ school, open, onOpenChange, regions, onSaved 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             تعديل بيانات المدرسة
@@ -205,6 +206,11 @@ export function SchoolEditDialog({ school, open, onOpenChange, regions, onSaved 
               <div className="space-y-1.5 sm:col-span-2">
                 <Label className="text-xs">العنوان التفصيلي</Label>
                 <Input value={form.address} onChange={(e) => set("address", e.target.value)} />
+                {school && school.lat !== null && school.lng !== null && (
+                  <a className="inline-flex items-center gap-1.5 rounded-md bg-sky-50 px-2.5 py-1.5 text-sm font-medium text-sky-800 hover:bg-sky-100 focus-visible:outline-sky-600"
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${school.lat},${school.lng}`)}`}
+                    target="_blank" rel="noreferrer"><MapPin size={16} aria-hidden="true" />عرض الموقع</a>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">الموقع الإلكتروني</Label>
@@ -287,6 +293,7 @@ export function SchoolEditDialog({ school, open, onOpenChange, regions, onSaved 
           </div>
         </ScrollArea>
 
+        {school && <SchoolFieldWorkflow key={school.id} schoolId={school.id} />}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             إلغاء
