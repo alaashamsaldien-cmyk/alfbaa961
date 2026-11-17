@@ -8,7 +8,7 @@ import { requireFieldAccount, getFieldPermissions, getFieldSchoolScope, coordina
 import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { computeDataQuality } from "@/lib/geo/normalize";
-import { isInsideIraq } from "@/lib/geo/iraq";
+import { isInsideIraq, IRAQ_GOVERNORATES } from "@/lib/geo/iraq";
 import { syncRegionAssignments } from "@/lib/region-sync";
 
 export async function GET(request: NextRequest) {
@@ -43,7 +43,46 @@ export async function GET(request: NextRequest) {
       await syncRegionAssignments(db, { coordinatorId: principal.userId }).catch((error) => console.error("تعذرت مزامنة مناطق المنسقة", error));
     }
 
-    const where: Record<string, unknown> = { ...scope };
+    // فلاتر المحافظة والمنطقة — تُضاف فوق نطاق الحساب (لا تتجاوزه)
+    const governorateParam = sp.get("governorate")?.trim();
+    const regionParam = sp.get("regionId")?.trim();
+    const scoped: Record<string, unknown>[] = [scope as Record<string, unknown>];
+    if (governorateParam) scoped.push({ governorate: governorateParam });
+    if (regionParam) scoped.push({ regionId: regionParam === "none" ? null : regionParam });
+
+    // وضع الملخص: مربعات المحافظات (+ مناطق المحافظة المختارة) مع الأعداد
+    if (sp.get("summary") === "1") {
+      const base = { AND: [scope as Record<string, unknown>] };
+      const [byGov, visitedByGov] = await Promise.all([
+        db.school.groupBy({ by: ["governorate"], where: base as never, _count: { _all: true } }),
+        db.school.groupBy({ by: ["governorate"], where: { AND: [scope, { lastVisitAt: { not: null } }] } as never, _count: { _all: true } }),
+      ]);
+      const visited = new Map(visitedByGov.map((r) => [r.governorate, r._count._all]));
+      let regions: { id: string; name: string; count: number }[] | undefined;
+      let unregioned = 0;
+      if (governorateParam) {
+        const [byRegion, list] = await Promise.all([
+          db.school.groupBy({ by: ["regionId"], where: { AND: [scope, { governorate: governorateParam }] } as never, _count: { _all: true } }),
+          db.region.findMany({
+            where: { governorate: governorateParam, isActive: true, ...(scope.regionId ? { id: scope.regionId } : {}) },
+            orderBy: { name: "asc" }, select: { id: true, name: true },
+          }),
+        ]);
+        const counts = new Map(byRegion.map((r) => [r.regionId, r._count._all]));
+        unregioned = counts.get(null) ?? 0;
+        regions = list.map((r) => ({ ...r, count: counts.get(r.id) ?? 0 }))
+          .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ar"));
+      }
+      return NextResponse.json({
+        scope,
+        governorates: byGov.flatMap((r) => r.governorate ? [{ name: r.governorate, total: r._count._all, visited: visited.get(r.governorate) ?? 0 }] : []),
+        noGovernorate: byGov.find((r) => !r.governorate)?._count._all ?? 0,
+        regions,
+        unregioned,
+      });
+    }
+
+    const where: Record<string, unknown> = { AND: scoped };
     if (q) {
       where.OR = [
         { name: { contains: q } },
@@ -118,6 +157,25 @@ export async function POST(request: NextRequest) {
     const scope = await getFieldSchoolScope(principal);
 
     const governorate = (scope.governorate ?? (typeof body.governorate === "string" ? body.governorate.trim() : "")) || "بغداد";
+    if (!IRAQ_GOVERNORATES.some((g) => g.name === governorate)) {
+      return NextResponse.json({ error: "اختر محافظة صحيحة." }, { status: 400 });
+    }
+
+    // منع التكرار: مدرسة بنفس الاسم في نفس المحافظة — تُعرض للمستخدم ليؤكد أنها مدرسة مختلفة
+    if (body.force !== true) {
+      const duplicates = await db.school.findMany({
+        where: { governorate, name: { equals: name, mode: "insensitive" } },
+        select: { id: true, name: true, regionText: true, region: { select: { name: true } } },
+        take: 5,
+      });
+      if (duplicates.length) {
+        return NextResponse.json({
+          error: "توجد مدرسة بنفس الاسم في هذه المحافظة.",
+          code: "DUPLICATE",
+          duplicates: duplicates.map((d) => ({ id: d.id, name: d.name, regionName: d.region?.name ?? d.regionText ?? null })),
+        }, { status: 409 });
+      }
+    }
 
     // إحداثيات اختيارية — تُدقق جغرافياً إن وُجدت (داخل العراق فقط)
     let lat: number | null = null;
@@ -131,8 +189,15 @@ export async function POST(request: NextRequest) {
     }
 
     // المنطقة: نص حر يُطابق جدول المناطق أو ينشئ منطقة جديدة ضمن المحافظة
-    const regionText = typeof body.regionText === "string" && body.regionText.trim() ? body.regionText.trim() : null;
+    let regionText = typeof body.regionText === "string" && body.regionText.trim() ? body.regionText.trim() : null;
     let regionId = scope.regionId ?? null;
+    // منطقة مختارة من القائمة — يجب أن تتبع المحافظة نفسها
+    if (!regionId && typeof body.regionId === "string" && body.regionId) {
+      const chosen = await db.region.findFirst({ where: { id: body.regionId, governorate }, select: { id: true, name: true } });
+      if (!chosen) return NextResponse.json({ error: "المنطقة المختارة لا تتبع هذه المحافظة." }, { status: 400 });
+      regionId = chosen.id;
+      regionText = regionText ?? chosen.name;
+    }
     if (!regionId && regionText) {
       const region = await db.region.upsert({
         where: { name_governorate: { name: regionText, governorate } },
@@ -148,6 +213,23 @@ export async function POST(request: NextRequest) {
     const institutionType = typeof body.institutionType === "string" && body.institutionType.trim() ? body.institutionType.trim() : null;
     const stage = typeof body.stage === "string" && body.stage.trim() ? body.stage.trim() : null;
     const studentCount = typeof body.studentCount === "number" && Number.isFinite(body.studentCount) ? Math.round(body.studentCount) : null;
+    const text = (v: unknown, max = 2000) => typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+    const sector = body.sector === "GOVERNMENT" || body.sector === "PRIVATE" ? body.sector : null;
+    const notes = text(body.notes);
+    const stages = text(body.stages, 300);
+    const facebookUrl = text(body.facebookUrl, 500);
+    const website = text(body.website, 500);
+    const availabilityStatus = body.availabilityStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "AVAILABLE";
+    const contractStatus = body.contractStatus === "CONTRACTED" ? "CONTRACTED" : "NOT_CONTRACTED";
+    // تاريخ الإضافة/الاكتشاف الذي يحدده المستخدم (لا يقبل تاريخاً مستقبلياً)
+    const parseDate = (v: unknown) => {
+      if (typeof v !== "string" || !v) return null;
+      const d = new Date(v.length === 10 ? `${v}T12:00:00+03:00` : v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    let discoveredAt = parseDate(body.addedAt) ?? new Date();
+    if (discoveredAt.getTime() > Date.now()) discoveredAt = new Date();
+    const nextVisitAt = parseDate(body.nextVisitAt);
 
     const dataQuality = computeDataQuality({ phone, principalName, lat, lng, institutionType, regionText, studentCount, address });
 
@@ -166,12 +248,37 @@ export async function POST(request: NextRequest) {
         studentCount,
         lat,
         lng,
+        sector,
+        notes,
+        stages,
+        facebookUrl,
+        website,
+        availabilityStatus,
+        contractStatus,
         dataSource: "MANUAL_ENTRY",
         discoveryStatus: "FIELD_CONFIRMED", // مدرسة أضيفت ميدانياً من موظف فعلي
         dataQuality,
-        discoveredAt: new Date(),
+        discoveredAt,
+        // المنسقة التي أضافت المدرسة تُنسّب لها مباشرة (تظهر في قائمتها فوراً)
+        ...(principal.isCoordinator ? { assignments: { create: { coordinatorId: principal.userId } } } : {}),
       },
     });
+
+    // منسقات المنطقة (تنسيب المناطق) يحصلن على المدرسة الجديدة تلقائياً
+    if (regionId) await syncRegionAssignments(db, { schoolIds: [school.id] }).catch((error) => console.error("تعذرت مزامنة تنسيب المنطقة", error));
+
+    // موعد زيارة/متابعة قادم — يظهر في التذكيرات
+    if (nextVisitAt && nextVisitAt.getTime() > Date.now() - 24 * 60 * 60 * 1000) {
+      await db.followUp.create({
+        data: {
+          schoolId: school.id,
+          type: "FOLLOW_UP",
+          title: "زيارة مخططة عند إضافة المدرسة",
+          dueDate: nextVisitAt,
+          ...(principal.isCoordinator ? { coordinatorId: principal.userId } : { userId: principal.userId }),
+        },
+      });
+    }
 
     await logAudit({
       actorType: principal.isCoordinator ? "COORDINATOR" : "EMPLOYEE",
@@ -180,7 +287,7 @@ export async function POST(request: NextRequest) {
       action: AUDIT_ACTIONS.EMPLOYEE_CREATE_SCHOOL,
       entityType: "SCHOOL",
       entityId: school.id,
-      details: { name, governorate, regionText, lat, lng },
+      details: { name, governorate, regionId, regionText, lat, lng, addedAt: discoveredAt.toISOString(), nextVisitAt: nextVisitAt?.toISOString() ?? null },
     });
 
     await db.notification.create({

@@ -23,12 +23,13 @@ export async function getFieldPermissions(account: { userId: string; isCoordinat
   if (!account.isCoordinator) return getPermissionMap(account.userId);
   const coordinator = await db.coordinator.findUnique({
     where: { id: account.userId },
-    select: { canRegisterVisits: true, canViewVisits: true, canViewSchools: true },
+    select: { canRegisterVisits: true, canViewVisits: true, canViewSchools: true, canAddSchools: true },
   });
   const perms = Object.fromEntries(SECTION_KEYS.map((key) => [key, emptyPerms()])) as Record<SectionKey, SectionPerms>;
   perms.home = { ...emptyPerms(), visible: true, view: true };
   if (coordinator?.canViewSchools) {
-    perms.schools = { ...emptyPerms(), visible: true, view: true };
+    // صلاحية «إضافة مدرسة» من إعدادات المنسقة (canAddSchools) تفعّل زر الإضافة
+    perms.schools = { ...emptyPerms(), visible: true, view: true, create: Boolean(coordinator.canAddSchools) };
   }
   if (coordinator?.canRegisterVisits) perms.visit_register = { ...emptyPerms(), visible: true, view: true, create: true };
   if (coordinator?.canViewVisits) perms.visits = { ...emptyPerms(), visible: true, view: true };

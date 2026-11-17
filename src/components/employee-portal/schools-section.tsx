@@ -3,11 +3,15 @@
 // ——— بوابة الموظف: قسم المدارس — قائمة نطاقه + بحث + تفاصيل + إضافة مدرسة يدوياً ———
 // يخدم أيضاً قسم «اكتشاف وإضافة المدارس» (defaultAddOpen).
 import { SchoolFieldWorkflow } from "./school-field-workflow";
+import { AddSchoolDialog } from "./add-school-dialog";
+import { IRAQ_GOVERNORATES } from "@/lib/geo/iraq";
 import dynamic from "next/dynamic";
 import type { MapMarker } from "@/components/schools/base-map";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
   Loader2,
   MapPin,
   Map as MapIcon,
@@ -23,9 +27,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -58,6 +60,10 @@ interface SchoolRow {
   lastVisitorName?: string | null;
   hasCoords: boolean;
 }
+
+interface GovernorateSummary { name: string; total: number; visited: number }
+interface RegionSummary { id: string; name: string; count: number }
+const ALL_GOVERNORATES = "__all__";
 
 interface SchoolsSectionProps {
   perms: Record<string, SectionPerms>;
@@ -143,16 +149,25 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
   const [searchQ, setSearchQ] = useState("");
   const [detail, setDetail] = useState<{ school: SchoolRow & { regionName: string | null; address: string | null }; myRecentVisits: { id: string; contactType: string; result: string; createdAt: string; notes: string | null }[] } | null>(null);
   const [addOpen, setAddOpen] = useState(Boolean(defaultAddOpen));
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", regionText: "", phone: "", principalName: "", address: "", institutionType: "", stage: "", studentCount: "", lat: "", lng: "" });
+  // المحافظة المختارة: "" = مربعات المحافظات، ALL_GOVERNORATES = كل المدارس (العرض القديم)
+  const [governorate, setGovernorate] = useState("");
+  const [regionId, setRegionId] = useState("all");
+  const [govSummary, setGovSummary] = useState<GovernorateSummary[] | null>(null);
+  const [regionSummary, setRegionSummary] = useState<{ regions: RegionSummary[]; unregioned: number } | null>(null);
+  const [lockedGovernorate, setLockedGovernorate] = useState<string | null>(null);
+  const [summaryVersion, setSummaryVersion] = useState(0);
+  const showTiles = !governorate && !searchQ.trim();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async (query: string, signal?: AbortSignal) => {
+    if (!governorate && !query.trim()) { setLoading(false); return; }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ limit: view === "map" ? "500" : "300" });
+      const params = new URLSearchParams({ limit: view === "map" ? "2000" : "1000" });
       if (view === "map") params.set("onlyMap", "1");
+      if (governorate && governorate !== ALL_GOVERNORATES) params.set("governorate", governorate);
+      if (governorate && governorate !== ALL_GOVERNORATES && regionId !== "all") params.set("regionId", regionId);
       if (visitStatus !== "all") params.set("visitStatus", visitStatus);
       if (query.trim()) params.set("q", query.trim());
       const res = await fetch(`/api/employee/schools?${params.toString()}`, { cache: "no-store", signal });
@@ -169,7 +184,31 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [toast, view, visitStatus]);
+  }, [toast, view, visitStatus, governorate, regionId]);
+
+  // ملخص المحافظات (المربعات) ومناطق المحافظة المختارة
+  useEffect(() => {
+    const controller = new AbortController();
+    const params = new URLSearchParams({ summary: "1" });
+    if (governorate && governorate !== ALL_GOVERNORATES) params.set("governorate", governorate);
+    fetch(`/api/employee/schools?${params}`, { cache: "no-store", signal: controller.signal })
+      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j?.error); return j; })
+      .then((j) => {
+        setGovSummary(j.governorates ?? []);
+        setLockedGovernorate(j.scope?.governorate ?? null);
+        setRegionSummary(j.regions ? { regions: j.regions, unregioned: j.unregioned ?? 0 } : null);
+      })
+      .catch(() => { if (!controller.signal.aborted) setGovSummary([]); });
+    return () => controller.abort();
+  }, [governorate, summaryVersion]);
+
+  const openGovernorate = (name: string) => {
+    setSelectedMarker(null);
+    setRegionId("all");
+    setRegionSummary(null);
+    setSchools([]);
+    setGovernorate(name);
+  };
 
   useEffect(() => {
     const refresh = () => { if (!document.hidden) void load(searchQ); };
@@ -205,46 +244,6 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
     }
   };
 
-  const submitAdd = async () => {
-    if (!form.name.trim()) {
-      toast({ title: "اسم المدرسة مطلوب", variant: "destructive" });
-      return;
-    }
-    setSaving(true);
-    try {
-      const body: Record<string, unknown> = {
-        name: form.name.trim(),
-        regionText: form.regionText.trim() || undefined,
-        phone: form.phone.trim() || undefined,
-        principalName: form.principalName.trim() || undefined,
-        address: form.address.trim() || undefined,
-        institutionType: form.institutionType.trim() || undefined,
-        stage: form.stage.trim() || undefined,
-        studentCount: form.studentCount ? Number(form.studentCount) : undefined,
-      };
-      if (form.lat && form.lng) {
-        body.lat = Number(form.lat);
-        body.lng = Number(form.lng);
-      }
-      const res = await fetch("/api/employee/schools", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(j?.error ?? "تعذر الإضافة");
-      toast({ title: "أُضيفت المدرسة", description: `سُجلت «${form.name.trim()}» في النظام وظهرت للإدارة فوراً.` });
-      setAddOpen(false);
-      setForm({ name: "", regionText: "", phone: "", principalName: "", address: "", institutionType: "", stage: "", studentCount: "", lat: "", lng: "" });
-      load(searchQ);
-      onRegistered();
-    } catch (e) {
-      toast({ title: "تعذر إضافة المدرسة", description: e instanceof Error ? e.message : "", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const markers = useMemo<MapMarker[]>(() => schools.flatMap((school) => {
     if (!school.hasCoords || school.lat === null || school.lng === null) return [];
     return [{
@@ -262,7 +261,16 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-lg font-extrabold text-foreground">{title ?? "المدارس"}</p>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {governorate && (
+            <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label="رجوع للمحافظات" onClick={() => openGovernorate("")}>
+              <ChevronRight className="h-5 w-5" aria-hidden="true" />
+            </Button>
+          )}
+          <p className="truncate text-lg font-extrabold text-foreground">
+            {governorate === ALL_GOVERNORATES ? "كل المدارس" : governorate || (title ?? "المدارس")}
+          </p>
+        </div>
         <Button
           type="button"
           size="sm"
@@ -288,7 +296,27 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
         />
       </div>
 
-      {perms.schools?.view && (
+      {showTiles && (
+        <GovernorateTiles summary={govSummary} onOpen={openGovernorate} />
+      )}
+
+      {governorate && governorate !== ALL_GOVERNORATES && regionSummary && (regionSummary.regions.some((r) => r.count > 0) || regionSummary.unregioned > 0) && (
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 nice-scroll" role="group" aria-label="فلتر المنطقة">
+          {[
+            { id: "all", name: "كل المناطق", count: regionSummary.regions.reduce((a, r) => a + r.count, 0) + regionSummary.unregioned },
+            ...regionSummary.regions.filter((r) => r.count > 0),
+            ...(regionSummary.unregioned > 0 ? [{ id: "none", name: "بلا منطقة", count: regionSummary.unregioned }] : []),
+          ].map((r) => (
+            <button key={r.id} type="button" aria-pressed={regionId === r.id}
+              onClick={() => { setSelectedMarker(null); setRegionId(r.id); }}
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${regionId === r.id ? "border-sky-600 bg-sky-600 text-white" : "bg-white text-foreground"}`}>
+              {r.name} <span className={regionId === r.id ? "text-sky-100" : "text-muted-foreground"}>{formatNumber(r.count)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!showTiles && perms.schools?.view && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Tabs value={view} onValueChange={(value) => { setSelectedMarker(null); setView(value); }}>
             <TabsList>
@@ -307,7 +335,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
         </div>
       )}
 
-      {loading ? (
+      {showTiles ? null : loading ? (
         <div className="flex items-center justify-center rounded-xl border bg-white p-6 text-muted-foreground">
           <Loader2 className="me-2 h-4 w-4 animate-spin" aria-hidden="true" /> جارٍ التحميل...
         </div>
@@ -327,7 +355,7 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
                 <span className="text-sky-700">● لم تُزر</span>
               </div>
               <div className="relative isolate h-[min(55dvh,420px)] min-h-64 overflow-hidden rounded-xl border">
-                <BaseMap center={{ lat: 33.3152, lng: 44.3661 }} markers={markers} fitMarkers ariaLabel="خريطة مدارس نطاق العمل" />
+                <BaseMap center={IRAQ_GOVERNORATES.find((g) => g.name === governorate)?.center ?? { lat: 33.3152, lng: 44.3661 }} markers={markers} fitMarkers ariaLabel="خريطة مدارس نطاق العمل" />
               </div>
               {focusedSchool && (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3">
@@ -462,86 +490,65 @@ export function EmployeeSchoolsSection({ perms, canCreate, onRegistered, default
         </SheetContent>
       </Sheet>
 
-      {/* إضافة مدرسة يدوياً */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto nice-scroll">
-          <DialogHeader>
-            <DialogTitle>إضافة مدرسة جديدة يدوياً</DialogTitle>
-            <p className="text-xs text-muted-foreground">
-              تُسجل المدرسة في القاعدة المركزية فوراً وتظهر للإدارة — أضف الإحداثيات إن توفرت من GPS جهازك.
-            </p>
-          </DialogHeader>
-          <div className="grid grid-cols-1 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">اسم المدرسة *</Label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">المنطقة</Label>
-                <Input value={form.regionText} onChange={(e) => setForm((f) => ({ ...f, regionText: e.target.value }))} placeholder="مثال: الكرادة" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">هاتف المدرسة</Label>
-                <Input dir="ltr" className="text-start" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">اسم المدير/المديرة</Label>
-                <Input value={form.principalName} onChange={(e) => setForm((f) => ({ ...f, principalName: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">عدد الطلاب</Label>
-                <Input
-                  dir="ltr"
-                  inputMode="numeric"
-                  className="text-start"
-                  value={form.studentCount}
-                  onChange={(e) => setForm((f) => ({ ...f, studentCount: e.target.value.replace(/[^0-9]/g, "") }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">العنوان</Label>
-              <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Latitude</Label>
-                <Input dir="ltr" inputMode="decimal" className="text-start" value={form.lat} onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))} placeholder="33.3152" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Longitude</Label>
-                <Input dir="ltr" inputMode="decimal" className="text-start" value={form.lng} onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))} placeholder="44.3661" />
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => {
-                navigator.geolocation?.getCurrentPosition(
-                  (pos) => {
-                    setForm((f) => ({ ...f, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }));
-                    toast({ title: "أُلحق موقعك الحالي", description: "راجع الإحداثيات قبل الحفظ — إن كنت جالساً عند المدرسة فهي صحيحة." });
-                  },
-                  () => toast({ title: "تعذر الوصول للموقع", description: "فعّل GPS أو أدخل الإحداثيات يدوياً.", variant: "destructive" })
-                );
-              }}
-            >
-              <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
-              إلحاق موقعي الحالي (GPS)
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setAddOpen(false)} disabled={saving}>إلغاء</Button>
-            <Button type="button" onClick={submitAdd} disabled={saving} className="gap-2">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              حفظ المدرسة
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* إضافة مدرسة */}
+      <AddSchoolDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        defaultGovernorate={governorate && governorate !== ALL_GOVERNORATES ? governorate : undefined}
+        defaultRegionId={regionId !== "all" ? regionId : undefined}
+        lockedGovernorate={lockedGovernorate}
+        onSaved={(school) => {
+          setSummaryVersion((v) => v + 1);
+          if (governorate !== school.governorate && governorate !== ALL_GOVERNORATES) openGovernorate(school.governorate);
+          else void load(searchQ);
+          onRegistered();
+        }}
+      />
+    </div>
+  );
+}
+
+// ——— مربعات المحافظات: كل مربع محافظة مع عدد مدارسها وما تمت زيارته ———
+function GovernorateTiles({ summary, onOpen }: { summary: GovernorateSummary[] | null; onOpen: (name: string) => void }) {
+  const counts = new Map((summary ?? []).map((g) => [g.name, g]));
+  const total = (summary ?? []).reduce((a, g) => a + g.total, 0);
+  const visited = (summary ?? []).reduce((a, g) => a + g.visited, 0);
+  // المحافظات التي فيها مدارس أولاً
+  const ordered = [...IRAQ_GOVERNORATES].sort((a, b) => (counts.get(b.name)?.total ?? 0) - (counts.get(a.name)?.total ?? 0));
+  return (
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3" aria-label="المحافظات">
+      <button type="button" onClick={() => onOpen(ALL_GOVERNORATES)}
+        className="col-span-2 flex items-center gap-3 rounded-2xl border border-sky-200 bg-sky-600 p-4 text-start text-white shadow-sm active:scale-[0.98] sm:col-span-3">
+        <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15"><LayoutGrid className="h-6 w-6" aria-hidden="true" /></span>
+        <span className="flex-1">
+          <span className="block text-base font-extrabold">كل مدارسي</span>
+          <span className="text-xs text-sky-100">{summary ? `${formatNumber(total)} مدرسة · ${formatNumber(visited)} تمت زيارتها` : "جارٍ التحميل…"}</span>
+        </span>
+        <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+      </button>
+      {ordered.map(({ name }) => {
+        const g = counts.get(name);
+        const pct = g && g.total ? Math.round((g.visited / g.total) * 100) : 0;
+        return (
+          <button key={name} type="button" onClick={() => onOpen(name)}
+            className={`aspect-square rounded-2xl border p-3 text-start shadow-sm transition active:scale-[0.97] ${g?.total ? "bg-white" : "bg-muted/40 text-muted-foreground"}`}>
+            <span className="flex h-full flex-col justify-between">
+              <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${g?.total ? "bg-sky-100 text-sky-700" : "bg-muted text-muted-foreground"}`}>
+                <MapPin className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block text-sm font-extrabold">{name}</span>
+                <span className="block text-xs">{summary ? `${formatNumber(g?.total ?? 0)} مدرسة` : "…"}</span>
+                {g?.total ? (
+                  <span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-muted" aria-label={`نسبة الزيارة ${pct}%`}>
+                    <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                  </span>
+                ) : null}
+              </span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
