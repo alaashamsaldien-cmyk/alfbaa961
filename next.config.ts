@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // معرّف فريد لكل بناء — تقارنه الواجهة مع الخادم لتكتشف وجود تحديث جديد وتحدّث نفسها
+  env: {
+    NEXT_PUBLIC_BUILD_ID: process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA || String(Date.now()),
+  },
 };
 
 export default nextConfig;

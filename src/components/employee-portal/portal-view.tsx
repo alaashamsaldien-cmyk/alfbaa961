@@ -27,6 +27,7 @@ import {
 import { SECTION_ICONS } from "@/components/employees/section-icons";
 import { formatFullDate, formatNumber } from "@/lib/time";
 import { EmployeeSchoolsSection } from "@/components/employee-portal/schools-section";
+import { UpdateWatcher } from "@/components/employee-portal/update-watcher";
 import { VisitWizard } from "@/components/employee-portal/visit-wizard";
 import { EmployeeVisitsSection } from "@/components/employee-portal/visits-section";
 import { EmployeeSimpleSections } from "@/components/employee-portal/simple-sections";
@@ -161,6 +162,7 @@ export function EmployeePortalView({ onLogout }: PortalViewProps) {
   return (
     <div className="mx-auto min-h-dvh max-w-lg bg-background pb-[calc(3.625rem+env(safe-area-inset-bottom))]" dir="rtl">
       {/* الترويسة */}
+      <UpdateWatcher busy={section === "visit_register"} />
       <header className="sticky top-0 z-40 border-b bg-sidebar pt-[env(safe-area-inset-top)]">
         <div className="flex h-14 items-center gap-3 px-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15 ring-1 ring-sky-400/30">
