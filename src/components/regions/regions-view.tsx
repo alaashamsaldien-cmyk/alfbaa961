@@ -3,8 +3,8 @@
 // ——— قسم المناطق — قائمة المناطق الحقيقية من قاعدة البيانات ———
 // عرض أعداد المدارس المحسوبة فعلياً لكل منطقة + إضافة/تعديل/تعطيل/حذف آمن
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, MapPin, RefreshCw, Pencil, Trash2, ListPlus } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, MapPin, RefreshCw, Pencil, Trash2, ListPlus, Users, Map } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,8 @@ import { EmptyState } from "@/components/dashboard/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { formatNumber } from "@/lib/time";
 
+import { RegionAssignDialog } from "@/components/regions/region-assign-dialog";
+
 interface RegionItem {
   id: string;
   name: string;
@@ -23,17 +25,22 @@ interface RegionItem {
   isActive: boolean;
   createdAt: string;
   schoolCount: number;
+  assignableCount: number;
   contractedCount: number;
   unassignedCount: number;
   availableCount: number;
   coordinators: number;
+  regionCoordinators: { id: string; name: string }[];
 }
 
 export function RegionsView() {
   const { toast } = useToast();
   const [list, setList] = useState<RegionItem[] | null>(null);
   const [governorates, setGovernorates] = useState<string[]>([]);
-  const [govFilter, setGovFilter] = useState("all");
+  const [govFilter, setGovFilter] = useState("بغداد");
+  const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
+  const [assignRegions, setAssignRegions] = useState<string[]>([]);
+  const openAssignment = (ids: string[]) => setAssignRegions(ids);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", governorate: "بغداد" });
   const [saving, setSaving] = useState(false);
@@ -43,14 +50,19 @@ export function RegionsView() {
   const [presetGov, setPresetGov] = useState("بغداد");
   const [presetBusy, setPresetBusy] = useState(false);
 
+  const loadVersion = useRef(0);
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     try {
       const res = await fetch(`/api/regions?governorate=${encodeURIComponent(govFilter)}`, { cache: "no-store" });
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error);
+      if (version !== loadVersion.current) return;
       setList(j.regions);
+      setSelectedRegions(current => current.filter(id => j.regions.some((r: RegionItem) => r.id === id)));
       setGovernorates(j.governorates ?? []);
     } catch {
+      if (version !== loadVersion.current) return;
       setList([]);
       toast({ title: "تعذر تحميل المناطق", variant: "destructive" });
     }
@@ -181,9 +193,9 @@ export function RegionsView() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Select value={govFilter} onValueChange={setGovFilter}>
+          <Select value={govFilter} onValueChange={value => { loadVersion.current++; setSelectedRegions([]); setList(null); setGovFilter(value); }}>
             <SelectTrigger className="w-[170px]" aria-label="فلتر المحافظة">
-              <SelectValue />
+              <Map className="h-4 w-4 text-sky-600" /><SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">كل المحافظات</SelectItem>
@@ -192,11 +204,12 @@ export function RegionsView() {
               ))}
             </SelectContent>
           </Select>
+          <Button type="button" disabled={!selectedRegions.length} onClick={() => openAssignment(selectedRegions)} className="gap-2"><Users className="h-4 w-4" />تنسيب المحدد ({selectedRegions.length})</Button>
           <Button type="button" variant="outline" onClick={() => setPresetOpen(true)} className="gap-2">
             <ListPlus className="h-4 w-4" aria-hidden="true" />
             إضافة مناطق مرجعية
           </Button>
-          <Button type="button" onClick={() => setAddOpen(true)} className="gap-2">
+          <Button type="button" onClick={() => { setForm({ name: "", governorate: govFilter === "all" ? "بغداد" : govFilter }); setAddOpen(true); }} className="gap-2">
             <Plus className="h-4 w-4" aria-hidden="true" />
             إضافة منطقة
           </Button>
@@ -241,18 +254,20 @@ export function RegionsView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
+                  <th className="px-4 py-2.5"><input type="checkbox" aria-label="تحديد كل المناطق" checked={list.length > 0 && list.every(r => selectedRegions.includes(r.id))} onChange={e => setSelectedRegions(e.target.checked ? list.map(r => r.id) : [])} /></th>
                   <th className="px-4 py-2.5 text-start font-semibold">المنطقة</th>
                   <th className="px-4 py-2.5 text-start font-semibold">المحافظة</th>
                   <th className="px-4 py-2.5 text-center font-semibold">المدارس</th>
                   <th className="px-4 py-2.5 text-center font-semibold">متعاقدة</th>
                   <th className="px-4 py-2.5 text-center font-semibold">بلا تخصيص</th>
-                  <th className="px-4 py-2.5 text-center font-semibold">منسقات</th>
+                  <th className="px-4 py-2.5 text-start font-semibold">المنسقات</th>
                   <th className="px-4 py-2.5 text-center font-semibold">إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {list.map((r) => (
                   <tr key={r.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                    <td className="px-4 py-2.5"><input type="checkbox" aria-label={`تحديد منطقة ${r.name}`} checked={selectedRegions.includes(r.id)} onChange={e => setSelectedRegions(ids => e.target.checked ? [...ids, r.id] : ids.filter(id => id !== r.id))} /></td>
                     <td className="px-4 py-2.5">
                       <p className="font-bold text-foreground">{r.name}</p>
                       {!r.isActive && (
@@ -269,9 +284,22 @@ export function RegionsView() {
                         <span className="text-muted-foreground">0</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-center">{formatNumber(r.coordinators)}</td>
+                    <td className="px-4 py-2.5">
+                      {r.regionCoordinators.length ? (
+                        <div className="flex max-w-[220px] flex-wrap gap-1">
+                          {r.regionCoordinators.map((c) => (
+                            <Badge key={c.id} variant="outline" className="border-sky-200 bg-sky-50 text-[11px] text-sky-800">{c.name}</Badge>
+                          ))}
+                        </div>
+                      ) : r.coordinators > 0 ? (
+                        <span className="text-xs text-muted-foreground">{formatNumber(r.coordinators)} بتنسيب مدارس فردي</span>
+                      ) : (
+                        <span className="text-xs text-amber-600">غير منسّبة</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center justify-center gap-1">
+                        <Button size="sm" variant="outline" className="h-7 gap-1 border-sky-200 text-sky-700 hover:bg-sky-50" onClick={() => openAssignment([r.id])}><Users className="h-3.5 w-3.5" />تنسيب</Button>
                         <Button
                           type="button"
                           size="icon"
@@ -314,6 +342,18 @@ export function RegionsView() {
         </div>
       )}
 
+      <RegionAssignDialog
+        open={assignRegions.length > 0}
+        onOpenChange={open => { if (!open) setAssignRegions([]); }}
+        regions={assignRegions.flatMap(id => {
+          const r = (list ?? []).find(item => item.id === id);
+          return r ? [{ id: r.id, name: r.name, governorate: r.governorate, schoolCount: r.schoolCount, coordinators: r.regionCoordinators }] : [];
+        })}
+        onDone={() => { setSelectedRegions([]); load(); }}
+      />
+      <p className="text-xs text-muted-foreground">
+        تنسيب المنطقة يشمل كل مدارسها الحالية، وأي مدرسة تُضاف للمنطقة لاحقاً (من الخريطة أو Excel أو الاكتشاف) تُنسّب تلقائياً لنفس المنسقات.
+      </p>
       {/* إضافة منطقة */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-md">

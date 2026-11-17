@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { IRAQ_GOVERNORATES } from "@/lib/geo/iraq";
+import { syncRegionAssignments } from "@/lib/region-sync";
+import { syncGovernorateMapSchools } from "@/lib/map-sync";
 
 export async function GET(request: NextRequest) {
   const guard = await requireAdmin();
@@ -11,20 +13,31 @@ export async function GET(request: NextRequest) {
   try {
     const governorate = request.nextUrl.searchParams.get("governorate");
 
+    const regionWhere = {
+      isActive: true,
+      ...(governorate && governorate !== "all" ? { governorate } : {}),
+    };
+    // مزامنة تلقائية للمحافظة: مدارس الخريطة تُضاف وتُوزّع على مناطقها (أقضيتها) قبل العرض
+    if (governorate && governorate !== "all") {
+      await syncGovernorateMapSchools(governorate).catch((error) => console.error("تعذرت مزامنة مدارس المحافظة", error));
+    }
+    // مزامنة تلقائية: أي مدرسة دخلت منطقة منسّبة تُنسّب لمنسقاتها قبل عرض الأعداد
+    const regionIds = (await db.region.findMany({ where: regionWhere, select: { id: true } })).map((r) => r.id);
+    await syncRegionAssignments(db, { regionIds }).catch((error) => console.error("تعذرت مزامنة تنسيب المناطق", error));
+
     const regions = await db.region.findMany({
-      where: {
-        isActive: true,
-        ...(governorate && governorate !== "all" ? { governorate } : {}),
-      },
+      where: regionWhere,
       orderBy: [{ governorate: "asc" }, { name: "asc" }],
       include: {
         schools: {
           select: {
             contractStatus: true,
             coordinatorId: true,
+            assignments: { select: { coordinatorId: true } },
             availabilityStatus: true,
           },
         },
+        coordinatorLinks: { select: { coordinator: { select: { id: true, name: true, isActive: true } } } },
       },
     });
 
@@ -36,12 +49,16 @@ export async function GET(request: NextRequest) {
         isActive: r.isActive,
         createdAt: r.createdAt.toISOString(),
         schoolCount: r.schools.length,
+        assignableCount: r.schools.length,
         contractedCount: r.schools.filter((s) => s.contractStatus === "CONTRACTED").length,
-        unassignedCount: r.schools.filter((s) => !s.coordinatorId).length,
+        unassignedCount: r.schools.filter((s) => !s.coordinatorId && !s.assignments.length).length,
         availableCount: r.schools.filter((s) => s.availabilityStatus === "AVAILABLE").length,
         coordinators: [
-          ...new Set(r.schools.filter((s) => s.coordinatorId).map((s) => s.coordinatorId)),
+          ...new Set(r.schools.flatMap(s => [s.coordinatorId, ...s.assignments.map(a => a.coordinatorId)]).filter(Boolean)),
         ].length,
+        regionCoordinators: r.coordinatorLinks
+          .filter((l) => l.coordinator.isActive)
+          .map((l) => ({ id: l.coordinator.id, name: l.coordinator.name })),
       })),
       governorates: IRAQ_GOVERNORATES.map((g) => g.name),
     });

@@ -9,6 +9,7 @@ import { coordinatorSchoolContact } from "@/lib/field-account";
 import { getPrincipal } from "@/lib/auth";
 import { mapSchool } from "@/lib/schools-query";
 import { getBaghdadStartOfDay } from "@/lib/time";
+import { syncRegionAssignments } from "@/lib/region-sync";
 
 export async function GET(request: NextRequest) {
   try {
@@ -45,11 +46,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "لا تملك صلاحية عرض المدارس." }, { status: 403 });
     }
 
+    // مزامنة تلقائية: مدارس مناطق المنسقة الجديدة تظهر لها مباشرة
+    await syncRegionAssignments(db, { coordinatorId }).catch((error) => console.error("تعذرت مزامنة مناطق المنسقة", error));
+
     const schools = await db.school.findMany({
       where: { AND: [approvedMapSchoolWhere, { OR: [{ coordinatorId }, { assignments: { some: { coordinatorId } } }] }] },
       include: { region: true, coordinator: { select: { id: true, name: true } } },
       orderBy: { name: "asc" },
-      take: 500,
+      take: 5000,
     });
 
     const withCoords = schools.filter((s) => s.lat !== null && s.lng !== null);

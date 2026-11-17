@@ -9,6 +9,7 @@ import { checkPermission } from "@/lib/permissions";
 import { logAudit, AUDIT_ACTIONS } from "@/lib/audit";
 import { computeDataQuality } from "@/lib/geo/normalize";
 import { isInsideIraq } from "@/lib/geo/iraq";
+import { syncRegionAssignments } from "@/lib/region-sync";
 
 export async function GET(request: NextRequest) {
   const guard = await requireFieldAccount();
@@ -35,8 +36,12 @@ export async function GET(request: NextRequest) {
     }
     const q = sp.get("q")?.trim();
     const visitStatus = sp.get("visitStatus");
-    const limit = Math.min(500, Math.max(1, Number(sp.get("limit") ?? 200) || 200));
+    const limit = Math.min(5000, Math.max(1, Number(sp.get("limit") ?? 200) || 200));
     const scope = await getFieldSchoolScope(principal);
+    // المنسقة: مزامنة مدارس مناطقها المنسّبة قبل عرض القائمة
+    if (principal.isCoordinator) {
+      await syncRegionAssignments(db, { coordinatorId: principal.userId }).catch((error) => console.error("تعذرت مزامنة مناطق المنسقة", error));
+    }
 
     const where: Record<string, unknown> = { ...scope };
     if (q) {

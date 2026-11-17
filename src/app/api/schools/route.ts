@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listSchools, parseSchoolFilters, schoolFilterOptions } from "@/lib/schools-query";
 import { requireAdmin } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { syncRegionAssignments } from "@/lib/region-sync";
 
 export async function GET(request: NextRequest) {
   const guard = await requireAdmin();
@@ -11,6 +13,8 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const withOptions = sp.get("withOptions") === "1";
     const filters = parseSchoolFilters(sp);
+    // مزامنة تلقائية: المدارس الجديدة (Excel/الاكتشاف/الإضافة اليدوية) داخل مناطق منسّبة تُنسّب فوراً
+    await syncRegionAssignments(db).catch((error) => console.error("تعذرت مزامنة تنسيب المناطق", error));
     const result = await listSchools(filters);
     const options = withOptions ? await schoolFilterOptions(filters.researchOnly) : null;
     return NextResponse.json({ ...result, ...(options ? { options } : {}) });

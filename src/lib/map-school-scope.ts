@@ -7,19 +7,9 @@ export function isMapSchoolSource(source: string | null): boolean {
   return source !== null && MAP_SCHOOL_SOURCES.includes(source);
 }
 
-export const approvedMapSchoolWhere: Prisma.SchoolWhereInput = {
-  lat: { not: null },
-  lng: { not: null },
-  OR: [
-    { discoveryStatus: MAP_APPROVED },
-    {
-      dataSource: { in: MAP_SCHOOL_SOURCES },
-      discoveryStatus: { in: ["FIELD_CONFIRMED", "OFFICIALLY_DOCUMENTED"] },
-    },
-    // Keep Baghdad map assignments that were explicitly made before approval became a separate step.
-    { dataSource: "CLIENT_KML", coordinatorId: { not: null } },
-  ],
-};
+// أُلغيت خطوة «اعتماد الموقع»: كل مدرسة قابلة للتنسيب، وظهورها للمنسقة يحدده التنسيب نفسه فقط.
+// يبقى الاسم للتوافق مع المسارات التي تستخدمه.
+export const approvedMapSchoolWhere: Prisma.SchoolWhereInput = {};
 
 export const researchSchoolWhere: Prisma.SchoolWhereInput = {
   OR: [{ dataSource: null }, { dataSource: { notIn: MAP_SCHOOL_SOURCES } }],

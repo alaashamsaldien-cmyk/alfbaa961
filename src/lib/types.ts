@@ -167,7 +167,7 @@ export const SECTOR_LABELS_UI: Record<string, string> = {
 };
 
 export const DISCOVERY_STATUS_LABELS: Record<string, string> = {
-  MAP_APPROVED: "موقع معتمد من الإدارة",
+  MAP_APPROVED: "مدرسة خريطة",
   DISCOVERED: "مكتشفة",
   NEEDS_VERIFICATION: "تحتاج إلى تحقق",
   OFFICIALLY_DOCUMENTED: "موثقة من مصدر رسمي",

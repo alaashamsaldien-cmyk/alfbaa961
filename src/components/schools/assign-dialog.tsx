@@ -6,8 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import type { CoordinatorDTO } from "@/lib/types";
 
 type Preview = { schoolId: string; schoolName: string; before: {id: string; name: string}[]; after: {id: string; name: string}[] };
-interface Props { open: boolean; onOpenChange: (o: boolean) => void; schoolIds: string[]; schoolNames: string[]; coordinators: CoordinatorDTO[]; onDone: () => void }
-export function AssignDialog({ open, onOpenChange, schoolIds, schoolNames, coordinators, onDone }: Props) {
+interface Props { regionIds?: string[]; governorate?: string; open: boolean; onOpenChange: (o: boolean) => void; schoolIds: string[]; schoolNames: string[]; coordinators: CoordinatorDTO[]; onDone: () => void }
+export function AssignDialog({ open, onOpenChange, schoolIds, schoolNames, coordinators, onDone, regionIds, governorate }: Props) {
   const { toast } = useToast();
   const [selected, setSelected] = useState<string[]>([]);
   const [mode, setMode] = useState("shared");
@@ -27,7 +27,7 @@ export function AssignDialog({ open, onOpenChange, schoolIds, schoolNames, coord
   const submit = async (isPreview: boolean) => {
     setBusy(true);
     try {
-      const r = await fetch("/api/coordinators/assignments", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({schoolIds,coordinatorIds:selected,mode,action,preview:isPreview,expected:isPreview?undefined:preview})});
+      const r = await fetch("/api/coordinators/assignments", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({schoolIds,regionIds,governorate,coordinatorIds:selected,mode,action,preview:isPreview,expected:isPreview?undefined:preview})});
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       if (isPreview) setPreview(j.preview);
@@ -36,8 +36,8 @@ export function AssignDialog({ open, onOpenChange, schoolIds, schoolNames, coord
     finally {setBusy(false);}
   };
   return <Dialog open={open} onOpenChange={v => {if (!busy) onOpenChange(v);}}><DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto" dir="rtl">
-    <DialogHeader><DialogTitle>تنسيب المدارس</DialogTitle><DialogDescription>{schoolIds.length} مدرسة · {schoolNames.slice(0,3).join("، ")}</DialogDescription></DialogHeader>
-    {preview ? <div className="space-y-3"><p className="font-bold">مراجعة قبل الحفظ</p>{preview.map(s => <div key={s.schoolId} className="rounded-xl border p-3 text-sm"><b>{s.schoolName}</b><p>حالياً: {s.before.map(p=>p.name).join("، ") || "بلا تنسيب"}</p><p className="text-sky-700">بعد الحفظ: {s.after.map(p=>p.name).join("، ") || "بلا تنسيب"}</p></div>)}</div> : <fieldset disabled={busy} className="space-y-4">
+    <DialogHeader><DialogTitle>تنسيب المدارس</DialogTitle><DialogDescription>{regionIds?.length ? `${regionIds.length} منطقة · ${governorate}` : `${schoolIds.length} مدرسة`} · {schoolNames.slice(0,3).join("، ")}</DialogDescription></DialogHeader>
+    {preview ? <div className="space-y-3"><p className="font-bold">مراجعة قبل الحفظ · {preview.length} مدرسة</p>{preview.map(s => <div key={s.schoolId} className="rounded-xl border p-3 text-sm"><b>{s.schoolName}</b><p>حالياً: {s.before.map(p=>p.name).join("، ") || "بلا تنسيب"}</p><p className="text-sky-700">بعد الحفظ: {s.after.map(p=>p.name).join("، ") || "بلا تنسيب"}</p></div>)}</div> : <fieldset disabled={busy} className="space-y-4">
       <label className="block">طريقة التوزيع<select className="mt-1 w-full rounded-lg border p-2" value={mode} onChange={e=>{setMode(e.target.value);if(e.target.value === "separate") setAction("replace");}}><option value="shared">مشترك — نفس المدارس لكل المختارين</option><option value="separate">منفصل — مجموعة مختلفة لكل منسّق</option></select></label>
       <label className="block">العملية<select className="mt-1 w-full rounded-lg border p-2" value={action} onChange={e=>setAction(e.target.value)} disabled={mode === "separate"}><option value="add">إضافة مع الحفاظ على التكليف الحالي</option><option value="replace">استبدال التكليف الحالي</option><option value="remove">إزالة المختارين فقط من التكليف</option></select></label>
       {mode === "separate" && <p className="rounded-lg bg-amber-50 p-3 text-sm">توزيع بالتناوب حسب ترتيب الاختيار، مع استبدال التكليف السابق. راجع حصة كل منسّق قبل الحفظ.</p>}

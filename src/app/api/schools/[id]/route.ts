@@ -6,6 +6,7 @@ import { mergeFieldMeta, computeDataQuality, type FieldMeta } from "@/lib/geo/no
 import { getCurrentUser } from "@/lib/session";
 import { requireAdmin } from "@/lib/auth";
 import { MAP_APPROVED } from "@/lib/map-school-scope";
+import { syncRegionAssignments } from "@/lib/region-sync";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -153,6 +154,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
 
     const updated = await db.school.update({ where: { id }, data: data as never });
+    // نقل المدرسة لمنطقة منسّبة ← تُنسّب تلقائياً لمنسقات المنطقة
+    if (data.regionId) await syncRegionAssignments(db, { schoolIds: [id] }).catch((error) => console.error("تعذرت مزامنة تنسيب المنطقة", error));
     // إعادة حساب درجة الاكتمال بعد التعديل
     const quality = computeDataQuality({
       phone: updated.phone,

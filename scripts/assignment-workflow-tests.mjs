@@ -80,5 +80,24 @@ try{
  const stale=(await call("/api/coordinators/assignments",200,admin,{...payload,preview:true})).data.preview;
  await call("/api/coordinators/assignments",409,admin,{...payload,expected:[]});
  assert.equal(stale.length,3);
+ const region = await db.region.create({data:{name:"منطقة اختبار بغداد",governorate:"بغداد"}});
+ const other = await db.region.create({data:{name:"منطقة اختبار البصرة",governorate:"البصرة"}});
+ await db.school.updateMany({where:{id:{in:schools.map(s=>s.id)}},data:{regionId:region.id,discoveryStatus:null}});
+ await db.school.update({where:{id:research.id},data:{regionId:region.id,governorate:"بغداد"}});
+ const invalid = await db.school.create({data:{name:"موقع غير صالح",regionId:region.id,governorate:"بغداد",dataSource:"CLIENT_KML",lat:0,lng:0}});
+ const rp={regionIds:[region.id],governorate:"بغداد",coordinatorIds:people.slice(0,2).map(p=>p.id),mode:"shared",action:"replace"};
+ const regions=(await call("/api/regions?governorate="+encodeURIComponent("بغداد"),200,admin)).data.regions;
+ assert.equal(regions.find(r=>r.id===region.id).assignableCount,3);
+ await call("/api/coordinators/assignments",403,cookies[0],{...rp,preview:true});
+ await call("/api/coordinators/assignments",409,admin,{...rp,regionIds:[other.id],preview:true});
+ await call("/api/coordinators/assignments",409,admin,rp);
+ const regionPreview=(await call("/api/coordinators/assignments",200,admin,{...rp,preview:true})).data.preview;
+ assert.equal(regionPreview.length,3);
+ await call("/api/coordinators/assignments",200,admin,{...rp,expected:regionPreview});
+ assert.equal(await db.schoolAssignment.count({where:{schoolId:invalid.id}}),0);
+ assert.equal(await db.schoolAssignment.count({where:{schoolId:research.id}}),0);
+ await db.school.update({where:{id:schools[0].id},data:{regionId:other.id}});
+ await call("/api/coordinators/assignments",409,admin,{...rp,expected:regionPreview});
+ console.log("PASS: region filters, automatic map eligibility, private research exclusion, invalid coordinates, stale region preview");
  console.log("PASS: shared/separate, preview, idempotency, permissions, search isolation, visit ownership, follow-ups, reports, history, retained visits");
 }finally{await db.$disconnect();}

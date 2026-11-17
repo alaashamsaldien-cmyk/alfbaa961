@@ -92,6 +92,7 @@ model Region {
   updatedAt   DateTime @updatedAt
   schools     School[]
   employees   User[]
+  coordinatorLinks RegionCoordinator[] // منسقات المنطقة — كل مدرسة تدخل المنطقة تُنسّب لهن تلقائياً
 
   @@unique([name, governorate])
 }
@@ -117,6 +118,7 @@ model Coordinator {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   assignments SchoolAssignment[]
+  regionLinks RegionCoordinator[]
   schools   School[]
   activities Activity[]
   followUps  FollowUp[]
@@ -371,5 +373,17 @@ model SchoolAssignment {
   coordinator Coordinator @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
   assignedAt DateTime @default(now())
   @@id([schoolId, coordinatorId])
+  @@index([coordinatorId])
+}
+
+// تنسيب المنطقة كاملة لمنسقة أو أكثر — مصدر المزامنة التلقائية:
+// أي مدرسة موجودة أو تُضاف لاحقاً إلى المنطقة تُنسّب تلقائياً لمنسقات المنطقة.
+model RegionCoordinator {
+  regionId      String
+  coordinatorId String
+  region        Region      @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  coordinator   Coordinator @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+  assignedAt    DateTime    @default(now())
+  @@id([regionId, coordinatorId])
   @@index([coordinatorId])
 }

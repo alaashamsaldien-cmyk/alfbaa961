@@ -23,23 +23,38 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const ids = (v: unknown): string[] => Array.isArray(v) ? [...new Set(v.filter((s): s is string => typeof s === "string" && s.length > 0))] : [];
-    const schoolIds = ids(body.schoolIds);
+    let schoolIds = ids(body.schoolIds);
+    const regionIds = ids(body.regionIds);
+    if (regionIds.length && (schoolIds.length || regionIds.length > 100 || typeof body.governorate !== "string" || body.governorate === "all")) {
+      return NextResponse.json({ error: "اختر مناطق من محافظة واحدة." }, { status: 400 });
+    }
     const coordinatorIds = ids(body.coordinatorIds);
     const action = body.action as AssignmentAction;
     if (!["add", "replace", "remove"].includes(action) || !["shared", "separate"].includes(body.mode) ||
-        !schoolIds.length || schoolIds.length > 500 || !coordinatorIds.length || coordinatorIds.length > 100 ||
+        (!schoolIds.length && !regionIds.length) || schoolIds.length > 500 || !coordinatorIds.length || coordinatorIds.length > 100 ||
         (body.mode === "separate" && action !== "replace")) {
       return NextResponse.json({ error: "حدد المدارس والمنسّقين وطريقة صحيحة. التوزيع المنفصل يستبدل التكليف السابق." }, { status: 400 });
     }
     const result = await db.$transaction(async (tx) => {
+      if (regionIds.length) {
+        const regions = await tx.region.findMany({ where: { id: { in: regionIds }, governorate: body.governorate, isActive: true }, select: { id: true } });
+        if (regions.length !== regionIds.length) throw new Error("المناطق لا تتبع المحافظة المختارة.");
+        const regionSchools = await tx.school.findMany({
+          where: { regionId: { in: regionIds }, governorate: body.governorate, AND: [approvedMapSchoolWhere] },
+          select: { id: true }, orderBy: { id: "asc" }, take: 501,
+        });
+        if (!regionSchools.length || regionSchools.length > 500) throw new Error("اختر مناطق تحتوي بين مدرسة و٥٠٠ مدرسة.");
+        schoolIds = regionSchools.map(s => s.id);
+        if (body.preview !== true && !Array.isArray(body.expected)) throw new Error("معاينة المناطق مطلوبة قبل الحفظ.");
+      }
       // Lock parents in a stable order: concurrent administrators cannot lose assignments.
       for (const id of [...schoolIds].sort()) await tx.$queryRaw`SELECT id FROM "School" WHERE id = ${id} FOR UPDATE`;
       const schools = await tx.school.findMany({
-        where: { id: { in: schoolIds }, ...(action === "remove" ? {} : { AND: [approvedMapSchoolWhere] }) },
+        where: { id: { in: schoolIds }, ...(regionIds.length ? { regionId: { in: regionIds }, governorate: body.governorate } : {}), ...(action === "remove" ? {} : { AND: [approvedMapSchoolWhere] }) },
         select: { id: true, name: true, coordinatorId: true, assignments: { select: { coordinatorId: true } } },
       });
       const coordinators = await tx.coordinator.findMany({ where: { id: { in: coordinatorIds }, ...(action === "remove" ? {} : { isActive: true }) }, select: { id: true, name: true } });
-      if (schools.length !== schoolIds.length || coordinators.length !== coordinatorIds.length) throw new Error("تأكد من اعتماد المدارس ونشاط المنسّقين.");
+      if (schools.length !== schoolIds.length || coordinators.length !== coordinatorIds.length) throw new Error("تأكد من وجود المدارس ونشاط المنسّقين.");
       const plan = assignmentPlan(schoolIds, coordinatorIds, body.mode);
       const allPeople = await tx.coordinator.findMany({ where: { id: { in: [...new Set([...coordinatorIds, ...schools.flatMap(s => [s.coordinatorId, ...s.assignments.map(a => a.coordinatorId)].filter((id): id is string => Boolean(id)))])] } }, select: { id: true, name: true } });
       const names = (values: string[]) => values.map(id => ({ id, name: allPeople.find(p => p.id === id)?.name ?? id }));
@@ -60,7 +75,7 @@ export async function POST(request: NextRequest) {
         await tx.auditLog.create({ data: {
           actorType: "ADMIN", actorId: guard.principal.userId, actorName: guard.principal.name,
           action: "ASSIGN_SCHOOL", entityType: "SCHOOL", entityId: item.schoolId,
-          details: JSON.stringify({ action, mode: body.mode, ...item }),
+          details: JSON.stringify({ action, mode: body.mode, regionIds, governorate: body.governorate, ...item }),
         } });
       }
       return { preview, affected: preview.length };
